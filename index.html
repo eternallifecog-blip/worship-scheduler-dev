@@ -75,13 +75,13 @@ var FB_PROD = {
 
 // PASTE YOUR SANDBOX CONFIG HERE after creating elc-worship-dev in Firebase Console
 var FB_SANDBOX = {
-  apiKey:            "AIzaSy...",
+  apiKey:            "PASTE_SANDBOX_API_KEY_HERE",
   authDomain:        "elc-worship-dev.firebaseapp.com",
   databaseURL:       "https://elc-worship-dev-default-rtdb.firebaseio.com",
   projectId:         "elc-worship-dev",
   storageBucket:     "elc-worship-dev.firebasestorage.app",
-  messagingSenderId: "123456789",
-  appId:             "1:123456789:web:abc123"
+  messagingSenderId: "PASTE_SANDBOX_SENDER_ID_HERE",
+  appId:             "PASTE_SANDBOX_APP_ID_HERE"
 };
 
 // ── Auto-detect environment from hostname ─────────────────────────────────────
@@ -249,7 +249,7 @@ function showLogin(){
     
     html+='<div style="border-top:1px solid var(--line);margin:20px 0;padding-top:20px">'+
       '<h3 style="margin-top:0">🔑 Sign In</h3>'+
-      '<input id="sn" placeholder="Your Name"><input id="sp" type="password" placeholder="Password">'+
+      '<input id="sn" type="email" placeholder="Email"><input id="sp" type="password" placeholder="Password">'+
       '<button class="sec" onclick="doSignin()">Sign In</button>'+
       '<div id="inmsg"></div></div>';
     
@@ -275,7 +275,21 @@ function doSignup(isFirst){
   if(!fbReady){msg.innerHTML='<div class="msg-err">... Firebase not ready</div>';return;}
   
   msg.innerHTML='<div class="msg-info">... Creating account...</div>';
-  
+
+  // Check for duplicate email (case-insensitive)
+  ref.child("users").once("value").then(function(snap){
+    var users=snap.val()||{};
+    var emLower=em.toLowerCase();
+    for(var k in users){
+      if((users[k].email||"").toLowerCase()===emLower){
+        msg.innerHTML='<div class="msg-err">x An account with that email already exists. Please sign in.</div>';
+        return;
+      }
+    }
+    createAccount();
+  });
+
+  function createAccount(){
   var id="u_"+Math.random().toString(36).substr(2,9);
   ref.child("users/"+id).set({
     name:nm,email:em,phone:ph,pass:pw,
@@ -288,34 +302,36 @@ function doSignup(isFirst){
     else{
       if(isFirst){
         msg.innerHTML='<div class="msg-ok">✅ Admin account created! Sign in below.</div>';
-        alert("✅ Admin Account Created!\n\nNow sign in below with your name and password.");
+        alert("✅ Admin Account Created!\n\nNow sign in below with your email and password.");
       }else{
         msg.innerHTML='<div class="msg-ok">✅ Account created! Sign in below.</div>';
-        alert("✅ Account created!\n\nSign in below.");
+        alert("✅ Account created!\n\nSign in below with your email and password.");
       }
     }
   });
-}
+  } // end createAccount
+} // end doSignup
 
 function doSignin(){
-  var nm=(document.getElementById("sn").value||"").trim();
+  var em=(document.getElementById("sn").value||"").trim();
   var pw=(document.getElementById("sp").value||"");
   var msg=document.getElementById("inmsg");
-  
-  if(!nm||!pw){msg.innerHTML='<div class="msg-err">x Enter name and password</div>';return;}
+
+  if(!em||!pw){msg.innerHTML='<div class="msg-err">x Enter email and password</div>';return;}
   if(!fbReady){msg.innerHTML='<div class="msg-err">... Firebase not ready</div>';return;}
-  
+
   msg.innerHTML='<div class="msg-info">... Signing in...</div>';
-  
+
   ref.child("users").once("value").then(function(snap){
     var users=snap.val()||{};
     var fk=null,fu=null;
-    
+
+    var emLower=em.toLowerCase();
     for(var k in users){
-      if(users[k].name===nm){fk=k;fu=users[k];break;}
+      if((users[k].email||"").toLowerCase()===emLower){fk=k;fu=users[k];break;}
     }
-    
-    if(!fu){msg.innerHTML='<div class="msg-err">x Name not found</div>';return;}
+
+    if(!fu){msg.innerHTML='<div class="msg-err">x Email not found</div>';return;}
     if(fu.pass!==pw){msg.innerHTML='<div class="msg-err">x Password incorrect</div>';return;}
     if(fu.status==="pending"){msg.innerHTML='<div class="msg-err">... Awaiting admin approval</div>';return;}
     if(fu.status==="rejected"){msg.innerHTML='<div class="msg-err">x Account rejected by admin</div>';return;}
