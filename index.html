@@ -527,7 +527,8 @@ function showMemberHome(){
       window["_svcTxtNames_"+k] = txtNames;
 
       var hasPdfs = Object.keys(pdfMeta).length > 0;
-      if(combinedMeta || hasPdfs){
+      var hasAnyFiles = combinedMeta || hasPdfs || txtIds.length > 0;
+      if(hasAnyFiles){
         h+='<div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px">'+
           '<b style="font-size:13px">📄 Service Files</b>';
 
@@ -555,17 +556,21 @@ function showMemberHome(){
             '</button>';
         }
 
-        if(hasPdfs){
-          Object.keys(pdfMeta).forEach(function(pk){
-            var pm=pdfMeta[pk];
-            var icon = (pm.fileType === "text/plain") ? "🎵" : "📋";
-            h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
-              '<span>'+icon+'</span>'+
-              '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+pm.name+'</span>'+
-              '<span>'+Math.round((pm.size||0)/1024)+' KB</span>'+
-            '</div>';
-          });
+        // File list (all files, showing icons)
+        if(combinedMeta){
+          h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
+            '<span>📋</span><span style="flex:1">Combined PDF</span>'+
+          '</div>';
         }
+        Object.keys(pdfMeta).forEach(function(pk){
+          var pm=pdfMeta[pk];
+          var icon = (pm.fileType === "text/plain") ? "🎵" : "📋";
+          h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
+            '<span>'+icon+'</span>'+
+            '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+pm.name+'</span>'+
+            '<span>'+Math.round((pm.size||0)/1024)+' KB</span>'+
+          '</div>';
+        });
         h+='</div>';
       }
 
