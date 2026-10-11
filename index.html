@@ -1687,6 +1687,11 @@ async function combineSvcPdfs(sid){
       // Load binary data from separate path
       var dataUrl = await loadPdfData(sid, pk);
       if(!dataUrl){ console.warn("No data for "+pk); continue; }
+      // Skip txt files — they are not PDFs and cannot be merged
+      if(meta.fileType === "text/plain" || !dataUrl.startsWith("data:")){
+        console.warn("Skipping non-PDF file: "+meta.name);
+        continue;
+      }
 
       var base64 = dataUrl.split(',')[1];
       var binary  = atob(base64);
@@ -3056,7 +3061,7 @@ function svRenderPdf(){
   var tabs = document.getElementById("sv-song-tabs");
   tabs.innerHTML = _sv.songs.map(function(s,i){
     var label = s.title.length>14 ? s.title.substr(0,13)+"…" : s.title;
-    var icon  = (s._fileType === "text/plain") ? "📄 " : "📋 ";
+    var icon  = (s._fileType === "text/plain" || (s._dataUrl && !s._dataUrl.startsWith("data:"))) ? "📄 " : "📋 ";
     return '<button class="sv-tab'+(i===_sv.idx?" active":"")+'" onclick="svJumpPdf('+i+')">'+icon+label+'</button>';
   }).join('');
 
@@ -3064,21 +3069,24 @@ function svRenderPdf(){
   if(!sg._dataUrl){ pages.innerHTML='<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#666">File not found.</div>'; return; }
 
   var fileType = sg._fileType || "application/pdf";
+  var dataUrl  = sg._dataUrl || "";
 
-  if(fileType === "text/plain"){
+  // Auto-detect: if data doesn't look like a base64 dataURL, treat as plain text
+  var isPlainText = fileType === "text/plain" || !dataUrl.startsWith("data:");
+
+  if(isPlainText){
     // Render plain text file as readable scrollable content
-    var text = sg._dataUrl; // stored as plain text string (not base64)
     pages.innerHTML =
       '<div class="sv-page" style="display:flex;flex-direction:column;overflow:auto">'+
         '<div style="padding:8px 14px;font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:bold;background:#1a1a1a;flex-shrink:0">'+
-          '📄 '+sg.title+
+          '📄 '+escHtml(sg.title)+
         '</div>'+
-        '<pre style="margin:0;padding:16px;font-size:14px;color:#eee;white-space:pre-wrap;font-family:monospace;line-height:1.7;flex:1;overflow:auto">'+escHtml(text)+'</pre>'+
+        '<pre style="margin:0;padding:16px;font-size:14px;color:#eee;white-space:pre-wrap;font-family:monospace;line-height:1.7;flex:1;overflow:auto">'+escHtml(dataUrl)+'</pre>'+
       '</div>';
   } else {
-    // PDF / image
+    // PDF / image — stored as base64 dataURL
     try{
-      var base64  = sg._dataUrl.includes(",") ? sg._dataUrl.split(",")[1] : sg._dataUrl;
+      var base64  = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
       var binary  = atob(base64);
       var bytes   = new Uint8Array(binary.length);
       for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
