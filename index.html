@@ -515,19 +515,25 @@ function showMemberHome(){
           '<b style="font-size:13px">📄 Service Files</b>';
 
         // Build list of all PDF IDs for this service for the viewer
-        var allPdfIds = [];
+        var allPdfIds   = [];
         var allPdfNames = [];
-        if(combinedMeta){ allPdfIds.push("combined"); allPdfNames.push("Combined PDF"); }
-        Object.keys(pdfMeta).forEach(function(pk){ allPdfIds.push(pk); allPdfNames.push(pdfMeta[pk].name); });
+        var allPdfTypes = [];
+        if(combinedMeta){ allPdfIds.push("combined"); allPdfNames.push("Combined PDF"); allPdfTypes.push("application/pdf"); }
+        Object.keys(pdfMeta).forEach(function(pk){
+          allPdfIds.push(pk);
+          allPdfNames.push(pdfMeta[pk].name);
+          allPdfTypes.push(pdfMeta[pk].fileType || "application/pdf");
+        });
         window["_svcPdfIds_"+k]   = allPdfIds;
         window["_svcPdfNames_"+k] = allPdfNames;
+        window["_svcPdfTypes_"+k] = allPdfTypes;
 
         if(allPdfIds.length){
           h+='<button onclick="openSvcPdfViewer(\''+k+'\')" '+
             'style="display:flex;align-items:center;gap:10px;margin:10px 0 6px;padding:12px 14px;width:100%;'+
             'background:var(--accent);color:#fff;border-radius:8px;border:none;cursor:pointer;font-weight:bold;text-align:left">'+
             '<span style="font-size:22px">📂</span>'+
-            '<div><div style="font-size:14px">Open Service PDFs</div>'+
+            '<div><div style="font-size:14px">Open Service Files</div>'+
             '<div style="font-size:11px;opacity:0.85">'+allPdfIds.length+' file'+(allPdfIds.length>1?"s":"")+' · swipe through all</div></div>'+
             '<span style="font-size:18px;margin-left:auto">›</span>'+
             '</button>';
@@ -536,8 +542,9 @@ function showMemberHome(){
         if(hasPdfs){
           Object.keys(pdfMeta).forEach(function(pk){
             var pm=pdfMeta[pk];
+            var icon = (pm.fileType === "text/plain") ? "📄" : "📋";
             h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
-              '<span>📄</span>'+
+              '<span>'+icon+'</span>'+
               '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+pm.name+'</span>'+
               '<span>'+Math.round((pm.size||0)/1024)+' KB</span>'+
             '</div>';
@@ -1433,34 +1440,35 @@ function editSvcSongs(sid){
       }
       h+='</div>';
 
-      /* ── PDF Files ── */
+      /* ── Service Files (PDF / TXT) ── */
       h+='<div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:8px">'+
-        '<label style="margin:0"><b>📄 PDF Files (Chords / Numbers / Lyrics)</b></label>'+
-        '<p style="font-size:12px;color:#999;margin:4px 0 10px">Upload multiple PDFs. Team members can view each file and the combined PDF.</p>';
+        '<label style="margin:0"><b>📄 Service Files (Chords / Numbers / Lyrics)</b></label>'+
+        '<p style="font-size:12px;color:#999;margin:4px 0 10px">Upload PDF or TXT files. Team members can view each file in fullscreen.</p>';
 
-      // Existing uploaded PDFs
+      // Existing uploaded files
       var pdfKeys=Object.keys(svcPdfs);
       if(pdfKeys.length){
         pdfKeys.forEach(function(pk){
           var pdf=svcPdfs[pk];
+          var fileIcon = (pdf.fileType === "text/plain") ? "📄" : "📋";
           h+='<div style="display:flex;justify-content:space-between;align-items:center;'+
             'background:var(--card);border:1px solid var(--line);padding:8px 12px;border-radius:6px;margin:4px 0">'+
             '<div>'+
-              '<span style="font-size:13px">📄 '+pdf.name+'</span>'+
+              '<span style="font-size:13px">'+fileIcon+' '+pdf.name+'</span>'+
               '<span style="font-size:11px;color:#999;margin-left:8px">'+Math.round(pdf.size/1024)+' KB</span>'+
             '</div>'+
             '<div style="display:flex;gap:6px">'+
-              '<button onclick="viewPdf(\''+sid+'\',\''+pk+'\')" style="width:auto;padding:4px 8px;margin:0;font-size:11px;background:var(--accent);color:#fff;border-radius:4px;border:none;cursor:pointer">View</button>'+
+              (pdf.fileType !== "text/plain" ? '<button onclick="viewPdf(\''+sid+'\',\''+pk+'\')" style="width:auto;padding:4px 8px;margin:0;font-size:11px;background:var(--accent);color:#fff;border-radius:4px;border:none;cursor:pointer">View</button>' : '')+
               '<button onclick="removeSvcPdf(\''+sid+'\',\''+pk+'\')" style="width:auto;padding:4px 8px;margin:0;font-size:11px;background:#ffebee;color:#c62828;border:1px solid #ef9a9a;border-radius:4px">✕ Remove</button>'+
             '</div></div>';
         });
       } else {
-        h+='<div style="color:#999;font-size:12px;padding:6px">No PDFs uploaded yet</div>';
+        h+='<div style="color:#999;font-size:12px;padding:6px">No files uploaded yet</div>';
       }
 
       // Upload button
       h+='<div style="margin-top:10px">'+
-        '<input type="file" id="svc-pdf-upload" accept=".pdf" multiple '+
+        '<input type="file" id="svc-pdf-upload" accept=".pdf,.txt" multiple '+
           'onchange="uploadSvcPdfs(\''+sid+'\')" style="margin:0">'+
         '<div id="pdf-upload-status" style="font-size:12px;color:#999;margin-top:4px"></div>'+
         '</div>';
@@ -1581,19 +1589,22 @@ function uploadSvcPdfs(sid){
       checkDone();
       return;
     }
+    var isTxt = file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt");
     var reader = new FileReader();
     reader.onload = function(e){
       var id = "pdf_"+Math.random().toString(36).substr(2,9);
-      var dataUrl = e.target.result;
-      // Store binary data in separate path to keep services node small
-      ref.child("svcPdfData/"+sid+"/"+id).set(dataUrl, function(err){
+      var fileData = e.target.result;
+      var fileType = isTxt ? "text/plain" : (file.type || "application/pdf");
+      // Store data in separate path to keep services node small
+      ref.child("svcPdfData/"+sid+"/"+id).set(fileData, function(err){
         if(err){
           errors.push(file.name+": "+err.message);
         } else {
-          // Store only metadata in the svcFiles path
+          // Store metadata in the svcFiles path (including fileType)
           ref.child("svcFiles/"+sid+"/pdfs/"+id).set({
             name: file.name,
             size: file.size,
+            fileType: fileType,
             url:  "#pdf:"+sid+":"+id,  // internal reference
             uploadedAt: Date.now()
           });
@@ -1607,7 +1618,8 @@ function uploadSvcPdfs(sid){
       done++;
       checkDone();
     };
-    reader.readAsDataURL(file);
+    // txt: read as plain text; PDF/image: read as dataURL
+    if(isTxt){ reader.readAsText(file); } else { reader.readAsDataURL(file); }
   });
 
   function checkDone(){
@@ -2808,6 +2820,7 @@ function openSongViewer(songs){
   _sv.songs   = songs;
   _sv.idx     = 0;
   _sv.blobUrls = [];
+  _sv.curKey  = null; // always reset key when opening viewer
 
   // Build key selector
   var sel = document.getElementById("sv-key-select");
@@ -2864,8 +2877,14 @@ function svRender(){
   var origKey = sg.key || "C";
   var sel = document.getElementById("sv-key-select");
   if(!_sv.curKey) _sv.curKey = origKey;
+  // Make sure the selected value exists in the options
+  var optVals = Array.prototype.map.call(sel.options, function(o){ return o.value; });
+  if(optVals.indexOf(_sv.curKey) === -1) _sv.curKey = origKey;
   sel.value = _sv.curKey;
-  document.getElementById("sv-orig-key").textContent = "Original: " + origKey;
+  var canTranspose = !!(sg.chords || sg.numberChart);
+  document.getElementById("sv-orig-key").textContent = canTranspose
+    ? "orig: " + origKey
+    : "orig: " + origKey + " (PDF only)";
 
   // Nav buttons
   document.getElementById("sv-prev").disabled = (_sv.idx === 0);
@@ -2884,9 +2903,12 @@ function svRender(){
 
 function svJump(i){
   _sv.idx = i;
-  _sv.curKey = null; // reset to song's own key
+  _sv.curKey = null; // reset to new song's own key
   svRender();
 }
+
+function svGoPrev(){ svGo(-1); }
+function svGoNext(){ svGo(1); }
 
 function svShowContent(sg, toKey){
   var pages = document.getElementById("sv-pages");
@@ -2894,26 +2916,30 @@ function svShowContent(sg, toKey){
   var fromKey = sg.key || "C";
   if(!toKey) toKey = fromKey;
 
-  // If song has a PDF file (chord/lyric sheet uploaded as PDF)
-  // We show text content (chords + lyrics) which allows key transposition
-  // PDF files are shown below text when available
+  var hasText = !!(sg.chords || sg.numberChart || sg.lyrics);
+  var hasPdf  = !!(sg.chordFile || sg.lyricFile);
 
   var html = '<div class="sv-page">';
 
   // ── Text chords + lyrics (transposable) ──
-  var hasText = sg.chords || sg.numberChart || sg.lyrics;
   if(hasText){
     if(sg.chords){
-      var transposed = transposeText(sg.chords, fromKey, toKey);
+      var transposed = (toKey && toKey !== fromKey) ? transposeText(sg.chords, fromKey, toKey) : sg.chords;
       html += '<div class="sv-chord-block">'+
         '<div style="font-size:11px;color:#4caf50;font-weight:bold;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">🎸 Chords — Key of '+toKey+'</div>'+
         '<pre style="margin:0;font-size:14px;color:#e8f5e9;white-space:pre-wrap;font-family:monospace">'+escHtml(transposed)+'</pre>'+
         '</div>';
     }
     if(sg.numberChart){
-      var nc = sg.chords ? buildNumberChart(transposeText(sg.chords, fromKey, toKey), toKey) : sg.numberChart;
+      var nc;
+      if(sg.chords && toKey){
+        var chordsForNC = (toKey !== fromKey) ? transposeText(sg.chords, fromKey, toKey) : sg.chords;
+        nc = buildNumberChart(chordsForNC, toKey);
+      } else {
+        nc = sg.numberChart;
+      }
       html += '<div class="sv-chord-block" style="background:#1a2535;border-color:#2196f3">'+
-        '<div style="font-size:11px;color:#2196f3;font-weight:bold;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">🔢 Number Chart</div>'+
+        '<div style="font-size:11px;color:#2196f3;font-weight:bold;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">🔢 Number Chart — Key of '+toKey+'</div>'+
         '<pre style="margin:0;font-size:14px;color:#e3f2fd;white-space:pre-wrap;font-family:monospace">'+escHtml(nc)+'</pre>'+
         '</div>';
     }
@@ -2923,23 +2949,27 @@ function svShowContent(sg, toKey){
         '<pre style="margin:0;font-size:14px;color:#ddd;white-space:pre-wrap;font-family:inherit;line-height:1.8">'+escHtml(sg.lyrics)+'</pre>'+
         '</div>';
     }
+  } else if(hasPdf){
+    // Only PDFs — show key note
+    html += '<div style="padding:10px 14px;background:#2a2010;border-left:3px solid #ff9800;margin-bottom:8px;font-size:12px;color:#ffcc80">'+
+      '⚠️ PDF chord sheet shown in original key (<b>'+fromKey+'</b>). '+
+      'To enable key transposition, admin must paste text chords in the Song Library.'+
+      '</div>';
   }
 
   html += '</div>';
   pages.innerHTML = html;
   loading.style.display = "none";
 
-  // ── If there are PDF/image files, render them below text ──
-  // chordFile
+  // ── PDF/image files rendered below text ──
   if(sg.chordFile){
-    svAppendFile(sg.chordFile, sg.chordFileType, "📄 Chord Sheet PDF");
+    svAppendFile(sg.chordFile, sg.chordFileType, "📄 Chord Sheet — Original Key: "+fromKey);
   }
-  // lyricFile
   if(sg.lyricFile && sg.lyricFile !== sg.chordFile){
-    svAppendFile(sg.lyricFile, sg.lyricFileType, "📝 Lyric Sheet PDF");
+    svAppendFile(sg.lyricFile, sg.lyricFileType, "📝 Lyric Sheet");
   }
 
-  if(!hasText && !sg.chordFile && !sg.lyricFile){
+  if(!hasText && !hasPdf){
     pages.innerHTML = '<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:14px">No chord or lyric content for this song.</div>';
   }
 }
@@ -2976,16 +3006,17 @@ function svAppendFile(dataUrl, fileType, label){
 function openSvcPdfViewer(sid){
   var ids   = window["_svcPdfIds_"+sid]   || [];
   var names = window["_svcPdfNames_"+sid] || [];
-  if(!ids.length){ alert("No PDFs for this service."); return; }
+  var types = window["_svcPdfTypes_"+sid] || [];
+  if(!ids.length){ alert("No files for this service."); return; }
 
   var loading = document.getElementById("sv-loading");
   var pages   = document.getElementById("sv-pages");
   loading.style.display = "flex";
   pages.innerHTML = "";
 
-  // Show viewer shell immediately — hide key bar for plain PDFs
+  // Show viewer shell — hide key bar (plain files, no transposition)
   document.getElementById("sv-key-bar").style.display = "none";
-  _sv.songs  = ids.map(function(id,i){ return {title: names[i]||id, _pdfId:id, _sid:sid}; });
+  _sv.songs  = ids.map(function(id,i){ return {title: names[i]||id, _pdfId:id, _sid:sid, _fileType: types[i]||"application/pdf"}; });
   _sv.idx    = 0;
   _sv.blobUrls = [];
   document.getElementById("song-viewer").style.display = "flex";
@@ -3000,16 +3031,16 @@ function openSvcPdfViewer(sid){
     if(Math.abs(dx) > 50){ svGo(dx < 0 ? 1 : -1); }
   };
 
-  // Fetch all PDFs then render first
+  // Fetch all files then render first
   var fetches = ids.map(function(id){ return ref.child("svcPdfData/"+sid+"/"+id).once("value"); });
   Promise.all(fetches).then(function(snaps){
     _sv.songs = ids.map(function(id,i){
-      return { title: names[i]||id, _dataUrl: snaps[i].val(), _isPdf: true };
+      return { title: names[i]||id, _dataUrl: snaps[i].val(), _fileType: types[i]||"application/pdf", _isPdf: true };
     });
     loading.style.display = "none";
     svRenderPdf();
   }).catch(function(e){
-    loading.innerHTML = "Error loading PDFs: "+e.message;
+    loading.innerHTML = "Error loading files: "+e.message;
   });
 }
 
@@ -3025,23 +3056,43 @@ function svRenderPdf(){
   var tabs = document.getElementById("sv-song-tabs");
   tabs.innerHTML = _sv.songs.map(function(s,i){
     var label = s.title.length>14 ? s.title.substr(0,13)+"…" : s.title;
-    return '<button class="sv-tab'+(i===_sv.idx?" active":"")+'" onclick="svJumpPdf('+i+')">'+label+'</button>';
+    var icon  = (s._fileType === "text/plain") ? "📄 " : "📋 ";
+    return '<button class="sv-tab'+(i===_sv.idx?" active":"")+'" onclick="svJumpPdf('+i+')">'+icon+label+'</button>';
   }).join('');
 
   var pages = document.getElementById("sv-pages");
-  if(!sg._dataUrl){ pages.innerHTML='<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#666">PDF not found.</div>'; return; }
+  if(!sg._dataUrl){ pages.innerHTML='<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#666">File not found.</div>'; return; }
 
-  try{
-    var base64  = sg._dataUrl.includes(",") ? sg._dataUrl.split(",")[1] : sg._dataUrl;
-    var binary  = atob(base64);
-    var bytes   = new Uint8Array(binary.length);
-    for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
-    var blob    = new Blob([bytes],{type:"application/pdf"});
-    var blobUrl = URL.createObjectURL(blob);
-    _sv.blobUrls.push(blobUrl);
-    pages.innerHTML = '<div class="sv-page"><iframe src="'+blobUrl+'#toolbar=0&view=FitH" class="sv-pdf-frame"></iframe></div>';
-  }catch(e){
-    pages.innerHTML = '<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#c62828">Error rendering PDF: '+e.message+'</div>';
+  var fileType = sg._fileType || "application/pdf";
+
+  if(fileType === "text/plain"){
+    // Render plain text file as readable scrollable content
+    var text = sg._dataUrl; // stored as plain text string (not base64)
+    pages.innerHTML =
+      '<div class="sv-page" style="display:flex;flex-direction:column;overflow:auto">'+
+        '<div style="padding:8px 14px;font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:1px;font-weight:bold;background:#1a1a1a;flex-shrink:0">'+
+          '📄 '+sg.title+
+        '</div>'+
+        '<pre style="margin:0;padding:16px;font-size:14px;color:#eee;white-space:pre-wrap;font-family:monospace;line-height:1.7;flex:1;overflow:auto">'+escHtml(text)+'</pre>'+
+      '</div>';
+  } else {
+    // PDF / image
+    try{
+      var base64  = sg._dataUrl.includes(",") ? sg._dataUrl.split(",")[1] : sg._dataUrl;
+      var binary  = atob(base64);
+      var bytes   = new Uint8Array(binary.length);
+      for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+      var blob    = new Blob([bytes],{type: fileType});
+      var blobUrl = URL.createObjectURL(blob);
+      _sv.blobUrls.push(blobUrl);
+      if(fileType.startsWith("image/")){
+        pages.innerHTML = '<div class="sv-page" style="overflow:auto"><img src="'+blobUrl+'" style="width:100%;display:block"></div>';
+      } else {
+        pages.innerHTML = '<div class="sv-page"><iframe src="'+blobUrl+'#toolbar=0&view=FitH" class="sv-pdf-frame"></iframe></div>';
+      }
+    }catch(e){
+      pages.innerHTML = '<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#c62828">Error rendering file: '+e.message+'</div>';
+    }
   }
 }
 
@@ -3054,15 +3105,13 @@ function svJumpPdf(i){
 var _svGo_orig = svGo;
 svGo = function(dir){
   var sg = _sv.songs[_sv.idx];
+  var next = _sv.idx + dir;
+  if(next < 0 || next >= _sv.songs.length) return;
+  _sv.idx = next;
+  _sv.curKey = null; // reset key to next song's own key
   if(sg && sg._isPdf){
-    var next = _sv.idx + dir;
-    if(next < 0 || next >= _sv.songs.length) return;
-    _sv.idx = next;
     svRenderPdf();
   } else {
-    var next = _sv.idx + dir;
-    if(next < 0 || next >= _sv.songs.length) return;
-    _sv.idx = next;
     svRender();
   }
 };
