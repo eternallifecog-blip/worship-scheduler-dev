@@ -558,9 +558,10 @@ function showManage(){
       pending.forEach(function(u){
         h+='<div class="card pending"><b>'+u.name+'</b>'+
           '<div style="font-size:12px;margin:8px 0;color:#666">📧 '+u.email+'<br>📱 '+u.phone+'</div>'+
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'+
           '<button class="green" style="margin:0" onclick="approveUser(\''+u._id+'\',\''+u.name+'\')">✓ Approve</button>'+
           '<button class="red" style="margin:0" onclick="rejectUser(\''+u._id+'\',\''+u.name+'\')">✗ Reject</button>'+
+          '<button class="sec" style="margin:0;color:#c62828;border-color:#c62828" onclick="deleteUser(\''+u._id+'\',\''+u.name+'\')">🗑 Delete</button>'+
           '</div></div>';
       });
     }else{
@@ -576,9 +577,12 @@ function showManage(){
           '<div style="font-size:12px;color:#666;margin:4px 0">'+
           (u.inst&&u.inst.length?u.inst.join(", "):"No instruments")+'</div>';
         if(u.role!=="admin"){
+          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">';
           h+=isCoA?
-            '<button class="sec" style="margin-top:8px" onclick="demote(\''+u._id+'\',\''+u.name+'\')">⬇ Remove Co-Admin</button>':
-            '<button class="sec" style="margin-top:8px" onclick="promote(\''+u._id+'\',\''+u.name+'\')">* Make Co-Admin</button>';
+            '<button class="sec" style="margin:0" onclick="demote(\''+u._id+'\',\''+u.name+'\')">⬇ Remove Co-Admin</button>':
+            '<button class="sec" style="margin:0" onclick="promote(\''+u._id+'\',\''+u.name+'\')">⭐ Make Co-Admin</button>';
+          h+='<button class="sec" style="margin:0;color:#c62828;border-color:#c62828" onclick="deleteUser(\''+u._id+'\',\''+u.name+'\')">🗑 Delete</button>';
+          h+='</div>';
         }
         h+='</div>';
       });
@@ -613,6 +617,16 @@ function demote(id,name){
   ref.child("users/"+id).update({role:"member"}).then(function(){
     alert(name+" is now Member");
     showManage();
+  });
+}
+function deleteUser(id,name){
+  if(!confirm("Delete "+name+"?\n\nThis removes their account permanently. They will no longer be able to sign in.\n\nThey will remain on any services they were already assigned to.")){return;}
+  logActivity("user_deleted","Deleted user: "+name);
+  ref.child("users/"+id).remove().then(function(){
+    alert("🗑 "+name+" has been deleted.");
+    showManage();
+  }).catch(function(err){
+    alert("Error: "+err.message);
   });
 }
 
