@@ -30,9 +30,59 @@ nav button{margin:0;padding:8px 12px;width:auto;font-size:13px}
 .msg-ok{background:#e8f5e9;color:#2e7d32;padding:10px;border-radius:6px;margin:8px 0;border-left:4px solid #28a745}
 .msg-err{background:#ffebee;color:#c62828;padding:10px;border-radius:6px;margin:8px 0;border-left:4px solid #c62828}
 .msg-info{background:#fff3e0;color:#e65100;padding:10px;border-radius:6px;margin:8px 0;border-left:4px solid #ff9800}
+
+/* ── Song Viewer Overlay ── */
+#song-viewer{position:fixed;inset:0;z-index:9999;background:#111;display:none;flex-direction:column;touch-action:pan-y}
+#sv-topbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#1a1a1a;border-bottom:1px solid #333;flex-shrink:0}
+#sv-title{flex:1;font-weight:bold;font-size:15px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sv-counter{font-size:12px;color:#aaa;white-space:nowrap}
+#sv-close{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:2px 6px;width:auto;margin:0;line-height:1}
+#sv-key-bar{display:flex;align-items:center;gap:6px;padding:8px 14px;background:#222;flex-shrink:0;overflow-x:auto}
+#sv-key-bar label{color:#aaa;font-size:11px;margin:0;white-space:nowrap;font-weight:600}
+#sv-key-select{width:auto;padding:4px 8px;font-size:13px;margin:0;background:#333;color:#fff;border:1px solid #555;border-radius:6px}
+#sv-orig-key{font-size:11px;color:#888;white-space:nowrap}
+#sv-content{flex:1;overflow:auto;position:relative}
+#sv-pages{display:flex;height:100%}
+.sv-page{min-width:100%;height:100%;display:flex;flex-direction:column;overflow:auto}
+.sv-pdf-frame{flex:1;border:none;width:100%;min-height:0}
+.sv-text-content{flex:1;padding:16px;overflow:auto;font-size:14px;line-height:1.7;color:#eee;white-space:pre-wrap;font-family:monospace}
+.sv-chord-block{background:#1e2a1e;border-left:3px solid #4caf50;padding:10px 14px;margin-bottom:8px;border-radius:0 6px 6px 0}
+.sv-lyric-block{padding:4px 14px;color:#ccc}
+#sv-nav{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#1a1a1a;border-top:1px solid #333;flex-shrink:0}
+#sv-nav button{background:#333;color:#fff;border:1px solid #555;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:14px;margin:0;width:auto}
+#sv-nav button:disabled{opacity:0.35;cursor:default}
+#sv-song-tabs{flex:1;display:flex;gap:6px;overflow-x:auto;padding:0 4px}
+.sv-tab{background:none;border:none;color:#888;padding:4px 10px;border-radius:12px;cursor:pointer;font-size:12px;white-space:nowrap;margin:0;width:auto;border:1px solid transparent}
+.sv-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+#sv-loading{position:absolute;inset:0;background:#111;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:14px}
 </style>
 </head>
 <body>
+<!-- ── Fullscreen Song Viewer ── -->
+<div id="song-viewer">
+  <div id="sv-topbar">
+    <button id="sv-close" onclick="closeSongViewer()">✕</button>
+    <span id="sv-title">Song</span>
+    <span id="sv-counter"></span>
+  </div>
+  <div id="sv-key-bar">
+    <label>KEY</label>
+    <select id="sv-key-select" onchange="svChangeKey(this.value)">
+      <option value="">Original</option>
+    </select>
+    <span id="sv-orig-key"></span>
+  </div>
+  <div id="sv-content">
+    <div id="sv-loading">⏳ Loading...</div>
+    <div id="sv-pages"></div>
+  </div>
+  <div id="sv-nav">
+    <button id="sv-prev" onclick="svGo(-1)">‹ Prev</button>
+    <div id="sv-song-tabs"></div>
+    <button id="sv-next" onclick="svGo(1)">Next ›</button>
+  </div>
+</div>
+
 <header>
   <div style="display:flex;align-items:center;gap:10px">
     <h1 style="margin:0">🎵 Worship Scheduler</h1>
@@ -464,29 +514,33 @@ function showMemberHome(){
         h+='<div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px">'+
           '<b style="font-size:13px">📄 Service Files</b>';
 
-        if(combinedMeta){
-          h+='<button onclick="viewPdf(\''+k+'\',\'combined\')" '+
+        // Build list of all PDF IDs for this service for the viewer
+        var allPdfIds = [];
+        var allPdfNames = [];
+        if(combinedMeta){ allPdfIds.push("combined"); allPdfNames.push("Combined PDF"); }
+        Object.keys(pdfMeta).forEach(function(pk){ allPdfIds.push(pk); allPdfNames.push(pdfMeta[pk].name); });
+        window["_svcPdfIds_"+k]   = allPdfIds;
+        window["_svcPdfNames_"+k] = allPdfNames;
+
+        if(allPdfIds.length){
+          h+='<button onclick="openSvcPdfViewer(\''+k+'\')" '+
             'style="display:flex;align-items:center;gap:10px;margin:10px 0 6px;padding:12px 14px;width:100%;'+
-            'background:#28a745;color:#fff;border-radius:8px;border:none;cursor:pointer;font-weight:bold;text-align:left">'+
-            '<span style="font-size:22px">📦</span>'+
-            '<div><div style="font-size:14px">Combined PDF</div>'+
-            '<div style="font-size:11px;opacity:0.85">All files merged · '+Math.round((combinedMeta.size||0)/1024)+' KB</div></div>'+
+            'background:var(--accent);color:#fff;border-radius:8px;border:none;cursor:pointer;font-weight:bold;text-align:left">'+
+            '<span style="font-size:22px">📂</span>'+
+            '<div><div style="font-size:14px">Open Service PDFs</div>'+
+            '<div style="font-size:11px;opacity:0.85">'+allPdfIds.length+' file'+(allPdfIds.length>1?"s":"")+' · swipe through all</div></div>'+
+            '<span style="font-size:18px;margin-left:auto">›</span>'+
             '</button>';
         }
 
         if(hasPdfs){
           Object.keys(pdfMeta).forEach(function(pk){
             var pm=pdfMeta[pk];
-            h+='<button onclick="viewPdf(\''+k+'\',\''+pk+'\')" '+
-              'style="display:flex;align-items:center;gap:10px;padding:10px 12px;width:100%;'+
-              'background:var(--card);border:1px solid var(--line);border-radius:6px;margin:4px 0;cursor:pointer;text-align:left">'+
-              '<span style="font-size:18px">📄</span>'+
-              '<div style="flex:1;min-width:0">'+
-                '<div style="font-size:13px;font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)">'+pm.name+'</div>'+
-                '<div style="font-size:11px;color:#999">'+Math.round((pm.size||0)/1024)+' KB</div>'+
-              '</div>'+
-              '<span style="font-size:12px;color:var(--accent)">Open ›</span>'+
-            '</button>';
+            h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
+              '<span>📄</span>'+
+              '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+pm.name+'</span>'+
+              '<span>'+Math.round((pm.size||0)/1024)+' KB</span>'+
+            '</div>';
           });
         }
         h+='</div>';
@@ -494,18 +548,21 @@ function showMemberHome(){
 
       // Songs section
       if(svcSongs.length){
+        // Serialise songs for viewer button (avoid inline JS with complex objects)
+        window["_svcSongs_"+k] = svcSongs;
+        var hasSongContent = svcSongs.some(function(sg){ return sg.data&&(sg.data.chords||sg.data.lyrics||sg.data.numberChart||sg.data.chordFile||sg.data.lyricFile); });
         h+='<div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px">'+
-          '<b style="font-size:13px">🎵 Songs</b>';
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'+
+            '<b style="font-size:13px">🎵 Songs ('+svcSongs.length+')</b>'+
+            (hasSongContent?'<button onclick="openServiceSongs(\''+k+'\',window[\'_svcSongs_'+k+'\'])" style="width:auto;padding:6px 14px;margin:0;font-size:12px;background:var(--accent);color:#fff;border-radius:20px;border:none;cursor:pointer;font-weight:bold">📖 Open Viewer</button>':'')+
+          '</div>';
         svcSongs.forEach(function(sg){
-          h+='<div style="margin-top:8px;padding:10px;background:var(--card);border-radius:6px;border-left:3px solid var(--accent)">'+
-            '<b style="font-size:14px">'+sg.title+'</b>';
-          if(sg.data){
-            if(sg.data.key) h+=' <span style="font-size:11px;color:#999">Key: <b>'+sg.data.key+'</b></span>';
-            if(sg.data.chords) h+='<details style="margin-top:6px"><summary style="cursor:pointer;color:var(--accent);font-size:12px">🎸 Chords</summary><pre style="font-size:11px;white-space:pre-wrap;max-height:160px;overflow:auto;background:var(--bg);padding:8px;border-radius:4px;margin-top:4px">'+sg.data.chords+'</pre></details>';
-            if(sg.data.numberChart) h+='<details><summary style="cursor:pointer;color:var(--accent);font-size:12px">🔢 Number Chart</summary><pre style="font-size:11px;white-space:pre-wrap;max-height:160px;overflow:auto;background:var(--bg);padding:8px;border-radius:4px;margin-top:4px">'+sg.data.numberChart+'</pre></details>';
-            if(sg.data.lyrics) h+='<details><summary style="cursor:pointer;color:var(--accent);font-size:12px">📝 Lyrics</summary><pre style="font-size:11px;white-space:pre-wrap;max-height:160px;overflow:auto;background:var(--bg);padding:8px;border-radius:4px;margin-top:4px">'+sg.data.lyrics+'</pre></details>';
-          }
-          h+='</div>';
+          h+='<div style="margin-top:6px;padding:8px 10px;background:var(--card);border-radius:6px;border-left:3px solid var(--accent);display:flex;align-items:center;justify-content:space-between">'+
+            '<div>'+
+              '<b style="font-size:13px">'+sg.title+'</b>'+
+              (sg.data&&sg.data.key?' <span style="font-size:11px;color:#999">Key: <b>'+sg.data.key+'</b></span>':'')+
+            '</div>'+
+          '</div>';
         });
         h+='</div>';
       }
@@ -2734,6 +2791,300 @@ function escHtml(s){
 
 
 start();
+
+/* ══════════════════════════════════════════════════════
+   SONG VIEWER — fullscreen swipeable song sheet viewer
+   ══════════════════════════════════════════════════════ */
+var _sv = {
+  songs:   [],   // [{id, title, key, chords, numberChart, lyrics, chordFile, chordFileType, lyricFile, lyricFileType, pdfFile, pdfFileType}]
+  idx:     0,
+  curKey:  null,
+  blobUrls: []
+};
+
+function openSongViewer(songs){
+  // songs: array of song objects with data
+  if(!songs||!songs.length){ alert("No songs with content for this service."); return; }
+  _sv.songs   = songs;
+  _sv.idx     = 0;
+  _sv.blobUrls = [];
+
+  // Build key selector
+  var sel = document.getElementById("sv-key-select");
+  sel.innerHTML = KEYS.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join('');
+
+  var viewer = document.getElementById("song-viewer");
+  viewer.style.display = "flex";
+  document.body.style.overflow = "hidden";
+
+  // Touch swipe support
+  var startX = 0;
+  var svContent = document.getElementById("sv-content");
+  svContent.ontouchstart = function(e){ startX = e.touches[0].clientX; };
+  svContent.ontouchend   = function(e){
+    var dx = e.changedTouches[0].clientX - startX;
+    if(Math.abs(dx) > 50){ svGo(dx < 0 ? 1 : -1); }
+  };
+
+  svRender();
+}
+
+function closeSongViewer(){
+  document.getElementById("song-viewer").style.display = "none";
+  document.body.style.overflow = "";
+  // Revoke any blob URLs
+  _sv.blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
+  _sv.blobUrls = [];
+}
+
+function svGo(dir){
+  var next = _sv.idx + dir;
+  if(next < 0 || next >= _sv.songs.length) return;
+  _sv.idx = next;
+  svRender();
+}
+
+function svChangeKey(key){
+  _sv.curKey = key;
+  svRender();
+}
+
+function svRender(){
+  var sg   = _sv.songs[_sv.idx];
+  var n    = _sv.songs.length;
+
+  // Top bar
+  document.getElementById("sv-title").textContent   = sg.title || "Song";
+  document.getElementById("sv-counter").textContent = (n > 1) ? (_sv.idx+1)+"/"+n : "";
+
+  // Key bar — set selector to song's key
+  var origKey = sg.key || "C";
+  var sel = document.getElementById("sv-key-select");
+  if(!_sv.curKey) _sv.curKey = origKey;
+  sel.value = _sv.curKey;
+  document.getElementById("sv-orig-key").textContent = "Original: " + origKey;
+
+  // Nav buttons
+  document.getElementById("sv-prev").disabled = (_sv.idx === 0);
+  document.getElementById("sv-next").disabled = (_sv.idx === n-1);
+
+  // Song tabs
+  var tabs = document.getElementById("sv-song-tabs");
+  tabs.innerHTML = _sv.songs.map(function(s,i){
+    return '<button class="sv-tab'+(i===_sv.idx?" active":"")+'" onclick="svJump('+i+')">'+
+      (s.title.length>14 ? s.title.substr(0,13)+'…' : s.title)+'</button>';
+  }).join('');
+
+  // Content
+  svShowContent(sg, _sv.curKey);
+}
+
+function svJump(i){
+  _sv.idx = i;
+  _sv.curKey = null; // reset to song's own key
+  svRender();
+}
+
+function svShowContent(sg, toKey){
+  var pages = document.getElementById("sv-pages");
+  var loading = document.getElementById("sv-loading");
+  var fromKey = sg.key || "C";
+  if(!toKey) toKey = fromKey;
+
+  // If song has a PDF file (chord/lyric sheet uploaded as PDF)
+  // We show text content (chords + lyrics) which allows key transposition
+  // PDF files are shown below text when available
+
+  var html = '<div class="sv-page">';
+
+  // ── Text chords + lyrics (transposable) ──
+  var hasText = sg.chords || sg.numberChart || sg.lyrics;
+  if(hasText){
+    if(sg.chords){
+      var transposed = transposeText(sg.chords, fromKey, toKey);
+      html += '<div class="sv-chord-block">'+
+        '<div style="font-size:11px;color:#4caf50;font-weight:bold;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">🎸 Chords — Key of '+toKey+'</div>'+
+        '<pre style="margin:0;font-size:14px;color:#e8f5e9;white-space:pre-wrap;font-family:monospace">'+escHtml(transposed)+'</pre>'+
+        '</div>';
+    }
+    if(sg.numberChart){
+      var nc = sg.chords ? buildNumberChart(transposeText(sg.chords, fromKey, toKey), toKey) : sg.numberChart;
+      html += '<div class="sv-chord-block" style="background:#1a2535;border-color:#2196f3">'+
+        '<div style="font-size:11px;color:#2196f3;font-weight:bold;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">🔢 Number Chart</div>'+
+        '<pre style="margin:0;font-size:14px;color:#e3f2fd;white-space:pre-wrap;font-family:monospace">'+escHtml(nc)+'</pre>'+
+        '</div>';
+    }
+    if(sg.lyrics){
+      html += '<div class="sv-lyric-block">'+
+        '<div style="font-size:11px;color:#aaa;font-weight:bold;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">📝 Lyrics</div>'+
+        '<pre style="margin:0;font-size:14px;color:#ddd;white-space:pre-wrap;font-family:inherit;line-height:1.8">'+escHtml(sg.lyrics)+'</pre>'+
+        '</div>';
+    }
+  }
+
+  html += '</div>';
+  pages.innerHTML = html;
+  loading.style.display = "none";
+
+  // ── If there are PDF/image files, render them below text ──
+  // chordFile
+  if(sg.chordFile){
+    svAppendFile(sg.chordFile, sg.chordFileType, "📄 Chord Sheet PDF");
+  }
+  // lyricFile
+  if(sg.lyricFile && sg.lyricFile !== sg.chordFile){
+    svAppendFile(sg.lyricFile, sg.lyricFileType, "📝 Lyric Sheet PDF");
+  }
+
+  if(!hasText && !sg.chordFile && !sg.lyricFile){
+    pages.innerHTML = '<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#666;font-size:14px">No chord or lyric content for this song.</div>';
+  }
+}
+
+function svAppendFile(dataUrl, fileType, label){
+  var pages = document.getElementById("sv-pages");
+  var page = pages.querySelector(".sv-page");
+  if(!page) return;
+
+  if(fileType === "application/pdf"){
+    // Convert to blob URL for iframe
+    try{
+      var base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
+      var binary = atob(base64);
+      var bytes  = new Uint8Array(binary.length);
+      for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+      var blob   = new Blob([bytes],{type:"application/pdf"});
+      var blobUrl = URL.createObjectURL(blob);
+      _sv.blobUrls.push(blobUrl);
+      page.innerHTML += '<div style="padding:8px 14px;font-size:11px;color:#aaa;font-weight:bold;text-transform:uppercase;letter-spacing:1px;border-top:1px solid #333;margin-top:8px">'+label+'</div>'+
+        '<iframe src="'+blobUrl+'#toolbar=0" class="sv-pdf-frame" style="min-height:80vh"></iframe>';
+    }catch(e){
+      page.innerHTML += '<div style="padding:14px;color:#c62828">Could not render PDF: '+e.message+'</div>';
+    }
+  } else if(fileType && fileType.startsWith("image/")){
+    page.innerHTML += '<div style="padding:8px 14px 4px;font-size:11px;color:#aaa;font-weight:bold;text-transform:uppercase;letter-spacing:1px;border-top:1px solid #333;margin-top:8px">'+label+'</div>'+
+      '<img src="'+dataUrl+'" style="width:100%;display:block">';
+  } else if(fileType === "text/plain"){
+    page.innerHTML += '<div class="sv-text-content" style="border-top:1px solid #333;margin-top:8px">'+escHtml(dataUrl)+'</div>';
+  }
+}
+
+// Open service PDFs (from Firebase svcPdfData) in the viewer
+function openSvcPdfViewer(sid){
+  var ids   = window["_svcPdfIds_"+sid]   || [];
+  var names = window["_svcPdfNames_"+sid] || [];
+  if(!ids.length){ alert("No PDFs for this service."); return; }
+
+  var loading = document.getElementById("sv-loading");
+  var pages   = document.getElementById("sv-pages");
+  loading.style.display = "flex";
+  pages.innerHTML = "";
+
+  // Show viewer shell immediately
+  document.getElementById("sv-key-bar").style.display = "none"; // no key for plain PDFs
+  _sv.songs  = ids.map(function(id,i){ return {title: names[i]||id, _pdfId:id, _sid:sid}; });
+  _sv.idx    = 0;
+  _sv.blobUrls = [];
+  document.getElementById("song-viewer").style.display = "flex";
+  document.body.style.overflow = "hidden";
+
+  // Touch swipe
+  var startX = 0;
+  var svContent = document.getElementById("sv-content");
+  svContent.ontouchstart = function(e){ startX = e.touches[0].clientX; };
+  svContent.ontouchend   = function(e){
+    var dx = e.changedTouches[0].clientX - startX;
+    if(Math.abs(dx) > 50){ svGo(dx < 0 ? 1 : -1); }
+  };
+
+  // Fetch all PDFs then render first
+  var fetches = ids.map(function(id){ return ref.child("svcPdfData/"+sid+"/"+id).once("value"); });
+  Promise.all(fetches).then(function(snaps){
+    _sv.songs = ids.map(function(id,i){
+      return { title: names[i]||id, _dataUrl: snaps[i].val(), _isPdf: true };
+    });
+    loading.style.display = "none";
+    svRenderPdf();
+  }).catch(function(e){
+    loading.innerHTML = "Error loading PDFs: "+e.message;
+  });
+}
+
+function svRenderPdf(){
+  var sg = _sv.songs[_sv.idx];
+  var n  = _sv.songs.length;
+
+  document.getElementById("sv-title").textContent   = sg.title;
+  document.getElementById("sv-counter").textContent = n>1 ? (_sv.idx+1)+"/"+n : "";
+  document.getElementById("sv-prev").disabled = (_sv.idx === 0);
+  document.getElementById("sv-next").disabled = (_sv.idx === n-1);
+
+  var tabs = document.getElementById("sv-song-tabs");
+  tabs.innerHTML = _sv.songs.map(function(s,i){
+    var label = s.title.length>14 ? s.title.substr(0,13)+"…" : s.title;
+    return '<button class="sv-tab'+(i===_sv.idx?" active":"")+'" onclick="svJumpPdf('+i+')">'+label+'</button>';
+  }).join('');
+
+  var pages = document.getElementById("sv-pages");
+  if(!sg._dataUrl){ pages.innerHTML='<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#666">PDF not found.</div>'; return; }
+
+  try{
+    var base64  = sg._dataUrl.includes(",") ? sg._dataUrl.split(",")[1] : sg._dataUrl;
+    var binary  = atob(base64);
+    var bytes   = new Uint8Array(binary.length);
+    for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+    var blob    = new Blob([bytes],{type:"application/pdf"});
+    var blobUrl = URL.createObjectURL(blob);
+    _sv.blobUrls.push(blobUrl);
+    pages.innerHTML = '<div class="sv-page"><iframe src="'+blobUrl+'#toolbar=0&view=FitH" class="sv-pdf-frame"></iframe></div>';
+  }catch(e){
+    pages.innerHTML = '<div class="sv-page" style="display:flex;align-items:center;justify-content:center;color:#c62828">Error rendering PDF: '+e.message+'</div>';
+  }
+}
+
+function svJumpPdf(i){
+  _sv.idx = i;
+  svRenderPdf();
+}
+
+// Override svGo to handle both modes
+var _svGo_orig = svGo;
+svGo = function(dir){
+  var sg = _sv.songs[_sv.idx];
+  if(sg && sg._isPdf){
+    var next = _sv.idx + dir;
+    if(next < 0 || next >= _sv.songs.length) return;
+    _sv.idx = next;
+    svRenderPdf();
+  } else {
+    var next = _sv.idx + dir;
+    if(next < 0 || next >= _sv.songs.length) return;
+    _sv.idx = next;
+    svRender();
+  }
+};
+
+// Override closeSongViewer to restore key bar
+var _closeSV_orig = closeSongViewer;
+closeSongViewer = function(){
+  document.getElementById("song-viewer").style.display = "none";
+  document.getElementById("sv-key-bar").style.display = ""; // restore
+  document.body.style.overflow = "";
+  _sv.blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
+  _sv.blobUrls = [];
+};
+
+// Wire "Open Song Viewer" into member home — called with sid
+function openServiceSongs(sid, songs){
+  // songs already passed in from showMemberHome's data
+  if(!songs||!songs.length){ alert("No songs added to this service yet."); return; }
+  // Filter to songs that have some content
+  var withContent = songs.filter(function(s){ return s.data && (s.data.chords||s.data.lyrics||s.data.numberChart||s.data.chordFile||s.data.lyricFile); });
+  if(!withContent.length){ alert("Songs have no chord/lyric content yet. Admin needs to add them in the Song Library."); return; }
+  var mapped = withContent.map(function(s){ return Object.assign({title:s.title}, s.data||{}); });
+  _sv.curKey = null;
+  openSongViewer(mapped);
+}
 </script>
 </body>
 </html>
