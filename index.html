@@ -2813,6 +2813,9 @@ function openSongViewer(songs){
   var sel = document.getElementById("sv-key-select");
   sel.innerHTML = KEYS.map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join('');
 
+  // Always show key bar for song/chord viewer
+  document.getElementById("sv-key-bar").style.display = "flex";
+
   var viewer = document.getElementById("song-viewer");
   viewer.style.display = "flex";
   document.body.style.overflow = "hidden";
@@ -2980,8 +2983,8 @@ function openSvcPdfViewer(sid){
   loading.style.display = "flex";
   pages.innerHTML = "";
 
-  // Show viewer shell immediately
-  document.getElementById("sv-key-bar").style.display = "none"; // no key for plain PDFs
+  // Show viewer shell immediately — hide key bar for plain PDFs
+  document.getElementById("sv-key-bar").style.display = "none";
   _sv.songs  = ids.map(function(id,i){ return {title: names[i]||id, _pdfId:id, _sid:sid}; });
   _sv.idx    = 0;
   _sv.blobUrls = [];
@@ -3068,7 +3071,7 @@ svGo = function(dir){
 var _closeSV_orig = closeSongViewer;
 closeSongViewer = function(){
   document.getElementById("song-viewer").style.display = "none";
-  document.getElementById("sv-key-bar").style.display = ""; // restore
+  document.getElementById("sv-key-bar").style.display = "flex"; // always restore to flex
   document.body.style.overflow = "";
   _sv.blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
   _sv.blobUrls = [];
