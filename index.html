@@ -87,6 +87,7 @@ nav button{margin:0;padding:8px 12px;width:auto;font-size:13px}
   <div style="display:flex;align-items:center;gap:10px">
     <h1 style="margin:0">🎵 Worship Scheduler</h1>
     <span id="env-badge"></span>
+    <span style="font-size:10px;color:#999;margin-left:auto">v2026.10.11-sheets</span>
   </div>
   <div id="uinfo" style="font-size:12px;color:#999;margin-top:4px"></div>
   <div class="status" id="synctxt">⏳ Starting...</div>
@@ -508,32 +509,46 @@ function showMemberHome(){
           '</button></div>';
       }
 
-      // Split files into PDFs and TXTs
+      // Split files: real PDFs go to the PDF viewer; TXT files (+ songs with text chords) become Chord Sheets
       var pdfOnlyIds=[],pdfOnlyNames=[],pdfOnlyTypes=[];
-      var txtIds=[],txtNames=[];
       if(combinedMeta){ pdfOnlyIds.push("combined"); pdfOnlyNames.push("Combined PDF"); pdfOnlyTypes.push("application/pdf"); }
       Object.keys(pdfMeta).forEach(function(pk){
         var pm=pdfMeta[pk];
-        if(pm.fileType==="text/plain"){
-          txtIds.push(pk); txtNames.push(pm.name);
-        } else {
+        if(!shIsTxtMeta(pm)){
           pdfOnlyIds.push(pk); pdfOnlyNames.push(pm.name); pdfOnlyTypes.push(pm.fileType||"application/pdf");
         }
       });
       window["_svcPdfIds_"+k]   = pdfOnlyIds;
       window["_svcPdfNames_"+k] = pdfOnlyNames;
       window["_svcPdfTypes_"+k] = pdfOnlyTypes;
-      window["_svcTxtIds_"+k]   = txtIds;
-      window["_svcTxtNames_"+k] = txtNames;
+      var sheets = shBuildSheetList(pdfMeta, svcSongs);
+      window["_svcSheets_"+k] = sheets;
 
-      var hasPdfs = Object.keys(pdfMeta).length > 0;
-      var hasAnyFiles = combinedMeta || hasPdfs || txtIds.length > 0;
-      if(hasAnyFiles){
+      // ── Chord Sheets (TXT) — its own section ──
+      if(sheets.length){
+        h+='<div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid #2d7a4a">'+
+          '<b style="font-size:13px">🎼 Chord Sheets ('+sheets.length+')</b>'+
+          '<div style="font-size:11px;color:#999;margin-top:2px">Change the key of each sheet, then tap 📄 PDF</div>'+
+          '<button onclick="openTxtViewer(\''+k+'\')" '+
+            'style="display:flex;align-items:center;gap:10px;margin:10px 0 6px;padding:12px 14px;width:100%;'+
+            'background:#1f6b3a;color:#fff;border-radius:8px;border:none;cursor:pointer;font-weight:bold;text-align:left">'+
+            '<span style="font-size:22px">🎼</span>'+
+            '<div><div style="font-size:14px">Open Chord Sheets</div>'+
+            '<div style="font-size:11px;opacity:0.85">change key · swipe · convert to PDF</div></div>'+
+            '<span style="font-size:18px;margin-left:auto">›</span>'+
+          '</button>';
+        sheets.forEach(function(sh){
+          h+='<div style="padding:4px 10px;font-size:12px;color:#999">🎵 '+escHtml(sh.title)+'</div>';
+        });
+        h+='</div>';
+      }
+
+      if(pdfOnlyIds.length){
         h+='<div style="margin-top:12px;padding:12px;background:var(--bg);border-radius:8px">'+
-          '<b style="font-size:13px">📄 Service Files</b>';
+          '<b style="font-size:13px">📄 Service PDFs</b>';
 
         // PDF files button
-        if(pdfOnlyIds.length){
+        {
           h+='<button onclick="openSvcPdfViewer(\''+k+'\')" '+
             'style="display:flex;align-items:center;gap:10px;margin:10px 0 6px;padding:12px 14px;width:100%;'+
             'background:var(--accent);color:#fff;border-radius:8px;border:none;cursor:pointer;font-weight:bold;text-align:left">'+
@@ -544,27 +559,11 @@ function showMemberHome(){
             '</button>';
         }
 
-        // TXT files button — separate section with transpose capability
-        if(txtIds.length){
-          h+='<button onclick="openTxtViewer(\''+k+'\')" '+
-            'style="display:flex;align-items:center;gap:10px;margin:10px 0 6px;padding:12px 14px;width:100%;'+
-            'background:#1a4a2e;color:#a8e6c0;border-radius:8px;border:1px solid #2d7a4a;cursor:pointer;font-weight:bold;text-align:left">'+
-            '<span style="font-size:22px">🎵</span>'+
-            '<div><div style="font-size:14px">Open Chord Sheets</div>'+
-            '<div style="font-size:11px;opacity:0.85">'+txtIds.length+' text file'+(txtIds.length>1?"s":"")+' · transpose &amp; convert to PDF</div></div>'+
-            '<span style="font-size:18px;margin-left:auto">›</span>'+
-            '</button>';
-        }
-
-        // File list (all files, showing icons)
-        if(combinedMeta){
-          h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
-            '<span>📋</span><span style="flex:1">Combined PDF</span>'+
-          '</div>';
-        }
+        // PDF file list
         Object.keys(pdfMeta).forEach(function(pk){
           var pm=pdfMeta[pk];
-          var icon = (pm.fileType === "text/plain") ? "🎵" : "📋";
+          if(shIsTxtMeta(pm)) return;
+          var icon = "📋";
           h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;color:#999">'+
             '<span>'+icon+'</span>'+
             '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+pm.name+'</span>'+
@@ -1860,7 +1859,7 @@ function loadChordFile(input){
   var preview = document.getElementById("chord-file-preview");
   preview.textContent = "Loading: "+file.name+" ("+Math.round(file.size/1024)+" KB)...";
 
-  if(file.type==="text/plain"){
+  if(file.type==="text/plain" || /\.txt$/i.test(file.name)){
     var reader = new FileReader();
     reader.onload = function(e){
       var txt = e.target.result;
@@ -1891,7 +1890,7 @@ function loadLyricFile(input){
   var preview = document.getElementById("lyric-file-preview");
   preview.textContent = "Loading: "+file.name+"...";
 
-  if(file.type==="text/plain"){
+  if(file.type==="text/plain" || /\.txt$/i.test(file.name)){
     var reader = new FileReader();
     reader.onload = function(e){
       var txt = e.target.result;
@@ -3028,224 +3027,422 @@ function svAppendFile(dataUrl, fileType, label){
   }
 }
 
-// ── TXT Chord Sheet Viewer ──
-// State for the TXT viewer
-var _tv = { sid:"", ids:[], names:[], texts:[], keys:[], idx:0 };
+/* ══════════════════════════════════════════════════════
+   CHORD SHEETS (TXT) — transpose per file, then convert to PDF
+   ══════════════════════════════════════════════════════ */
+
+// ── Music helpers (line-aware: only chord lines / [G] chords / "Key:" lines change) ──
+var SH_SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+var SH_FLAT  = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+var SH_NOTE  = {"C":0,"B#":0,"C#":1,"Db":1,"D":2,"D#":3,"Eb":3,"E":4,"Fb":4,"E#":5,"F":5,
+                "F#":6,"Gb":6,"G":7,"G#":8,"Ab":8,"A":9,"A#":10,"Bb":10,"B":11,"Cb":11};
+// Chord token: root, optional quality/extensions, optional slash bass, optional surrounding ( )
+var SH_CHORD_RE = /^(\(?)([A-G])([#b]?)((?:maj|min|dim|aug|sus|add|m|M|\+|°|ø|[0-9]|[#b](?=[0-9])|\((?=[#b0-9a-z])|\))*)(?:\/([A-G])([#b]?))?(\)?)$/;
+// Tokens allowed on a chord line that are not chords
+var SH_IGNORE_RE = /^(\|+:?|:?\|+|-+|–|\/+|%|\.+|,|x\d+|\(x\d+\)|\d+x|N\.?C\.?|\*+)$/i;
+// "[Intro]", "Verse 1:", "Chorus -" style prefix before chords on the same line
+var SH_LABEL_RE = /^(\s*(?:\[[^\]]*\]|\(?(?:intro|verse|chorus|pre-?chorus|bridge|tag|outro|ending|interlude|instrumental|turnaround|vamp|refrain|coda|solo|break)(?:\s*\d+)?\)?\s*[:\-]?|[A-Za-z][A-Za-z0-9 ]{0,20}:))(\s*)/i;
+// "Key: G", "Key of Bb", "KEY - Em"  (only "key" is case-insensitive; the note must be a capital A-G)
+var SH_KEYLINE_RE = /(\b[Kk][Ee][Yy]\s*(?:[Oo][Ff])?\s*[:=\-]?\s*)([A-G][#b]?)(m(?!aj))?(?![A-Za-z0-9#])/;
+
+function shUseFlats(semi, minor){
+  var major = minor ? (semi + 3) % 12 : semi;
+  return [1,3,5,8,10].indexOf(major) !== -1; // Db Eb F Ab Bb
+}
+function shKeyName(semi, minor){
+  return (shUseFlats(semi, minor) ? SH_FLAT : SH_SHARP)[semi] + (minor ? "m" : "");
+}
+function shIsChord(tok){
+  if(!tok) return false;
+  var m = tok.match(SH_CHORD_RE);
+  if(!m) return false;
+  if(m[1] && !m[7] && tok.indexOf(")") === -1) return false; // unbalanced "("
+  return true;
+}
+function shNote(letter, acc, shift, flats){
+  var s = SH_NOTE[letter + (acc||"")];
+  if(s === undefined) return letter + (acc||"");
+  return (flats ? SH_FLAT : SH_SHARP)[((s + shift) % 12 + 12) % 12];
+}
+function shTransposeChord(tok, shift, flats){
+  var m = tok.match(SH_CHORD_RE);
+  if(!m) return tok;
+  return m[1] + shNote(m[2], m[3], shift, flats) + (m[4]||"") +
+         (m[5] ? "/" + shNote(m[5], m[6], shift, flats) : "") + (m[7]||"");
+}
+// Is this line made only of chords (plus bar lines etc.)? Returns {label, body} or null
+function shChordLine(line){
+  if(!line.trim()) return null;
+  var label = "", body = line;
+  var lm = line.match(SH_LABEL_RE);
+  if(lm){
+    var labelText = lm[1].trim().replace(/[\[\]:\-]/g,"").trim();
+    // Only a real label ("Verse 1:", "[Intro]") — not chords like "[G]" or "G D -"
+    var isLabel = labelText.split(/\s+/).some(function(w){ return w && !shIsChord(w) && !SH_IGNORE_RE.test(w) && !/^\d+$/.test(w); });
+    if(isLabel){ label = lm[1] + lm[2]; body = line.substr(label.length); }
+  }
+  var toks = body.split(/\s+/).filter(function(t){ return t; });
+  if(!toks.length) return null;
+  var chords = 0;
+  for(var i=0;i<toks.length;i++){
+    if(shIsChord(toks[i])) chords++;
+    else if(!SH_IGNORE_RE.test(toks[i])) return null;
+  }
+  return chords ? {label:label, body:body} : null;
+}
+// Transpose the chords in a chord-only line, keeping columns aligned with the lyric line below
+function shTransposeChordLine(body, shift, flats){
+  var parts = body.split(/(\s+)/), out = "", debt = 0;
+  for(var i=0;i<parts.length;i++){
+    var p = parts[i];
+    if(!p) continue;
+    if(/^\s+$/.test(p)){
+      if(debt > 0){ var keep = Math.max(1, p.length - debt); debt -= (p.length - keep); p = p.substr(0, keep); }
+      else if(debt < 0){ p += new Array(-debt + 1).join(" "); debt = 0; }
+      out += p;
+    } else if(shIsChord(p)){
+      var np = shTransposeChord(p, shift, flats);
+      debt += np.length - p.length;
+      out += np;
+    } else out += p;
+  }
+  return out;
+}
+// Find the sheet's key: explicit "Key:" line first, else the first chord on the first chord line
+function shDetectKey(text, fallbackKey){
+  var lines = String(text||"").split(/\r?\n/);
+  for(var i=0;i<lines.length;i++){
+    var km = lines[i].match(SH_KEYLINE_RE);
+    if(km && SH_NOTE[km[2]] !== undefined) return {semi: SH_NOTE[km[2]], minor: !!km[3], found:true};
+  }
+  if(fallbackKey){
+    var fm = String(fallbackKey).match(/^([A-G][#b]?)(m(?!aj))?/);
+    if(fm && SH_NOTE[fm[1]] !== undefined) return {semi: SH_NOTE[fm[1]], minor: !!fm[2], found:true};
+  }
+  for(var j=0;j<lines.length;j++){
+    var cl = shChordLine(lines[j]);
+    if(cl){
+      var first = cl.body.split(/\s+/).filter(shIsChord)[0];
+      var cm = first && first.match(SH_CHORD_RE);
+      if(cm){
+        var q = cm[4]||"";
+        var minor = /^(m(?!aj)|min)/.test(q);
+        return {semi: SH_NOTE[cm[2]+(cm[3]||"")], minor: minor, found:true};
+      }
+    }
+  }
+  return {semi:0, minor:false, found:false};
+}
+// Transpose a whole sheet. Returns [{text, type}] with type: "chord" | "key" | "text"
+function shTransposeLines(text, fromSemi, toSemi, minor){
+  var shift = ((toSemi - fromSemi) % 12 + 12) % 12;
+  var flats = shUseFlats(toSemi, minor);
+  var newKey = shKeyName(toSemi, minor);
+  return String(text||"").replace(/\r/g,"").replace(/\t/g,"    ").split("\n").map(function(line){
+    // 1. "Key: G" line
+    if(SH_KEYLINE_RE.test(line)){
+      return {type:"key", text: line.replace(SH_KEYLINE_RE, function(all, pre){ return pre + newKey; })};
+    }
+    // 2. Chord-only line
+    var cl = shChordLine(line);
+    if(cl){
+      return {type:"chord", text: cl.label + (shift ? shTransposeChordLine(cl.body, shift, flats) : cl.body)};
+    }
+    // 3. Inline [G] chords inside a lyric line
+    if(/\[[A-G][^\]\s]*\]/.test(line)){
+      return {type:"text", text: line.replace(/\[([^\]\s]+)\]/g, function(all, c){
+        return shIsChord(c) ? "[" + (shift ? shTransposeChord(c, shift, flats) : c) + "]" : all;
+      })};
+    }
+    // 4. Lyrics / number chart / anything else — untouched
+    return {type:"text", text: line};
+  });
+}
+function shTransposeText(text, fromSemi, toSemi, minor){
+  return shTransposeLines(text, fromSemi, toSemi, minor).map(function(l){ return l.text; }).join("\n");
+}
+
+// Replace the old word-based transposer everywhere (it changed lyrics: "God" → "Aod")
+transposeText = function(text, fromKey, toKey){
+  if(!text || !fromKey || !toKey || fromKey === toKey) return text;
+  var f = String(fromKey).match(/^([A-G][#b]?)(m(?!aj))?/), t = String(toKey).match(/^([A-G][#b]?)/);
+  if(!f || !t || SH_NOTE[f[1]] === undefined || SH_NOTE[t[1]] === undefined) return text;
+  return shTransposeText(text, SH_NOTE[f[1]], SH_NOTE[t[1]], !!f[2]);
+};
+
+// Stored text may be plain text or an old "data:text/plain;base64,..." URL
+function shDecodeText(s){
+  s = s == null ? "" : String(s);
+  var m = s.match(/^data:([^;,]*)(;base64)?,/);
+  if(!m) return s;
+  if(m[1] && m[1].indexOf("text") !== 0 && m[1] !== "application/octet-stream") return null; // a PDF/image, not text
+  var body = s.substr(m[0].length);
+  try{
+    if(m[2]){
+      var bin = atob(body), bytes = new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+    return decodeURIComponent(body);
+  }catch(e){ return null; }
+}
+function shIsTxtMeta(pm){
+  return !!pm && (pm.fileType === "text/plain" || /\.txt$/i.test(pm.name||""));
+}
+function shTitleFromName(n){ return String(n||"Sheet").replace(/\.txt$/i,"").replace(/[_]+/g," ").trim(); }
+
+// Build the list of chord sheets for a service: uploaded TXT service files + songs with text chords
+function shBuildSheetList(pdfMeta, svcSongs){
+  var list = [], seen = {};
+  Object.keys(pdfMeta||{}).forEach(function(pk){
+    var pm = pdfMeta[pk];
+    if(!shIsTxtMeta(pm)) return;
+    var title = shTitleFromName(pm.name);
+    seen[title.toLowerCase()] = 1;
+    list.push({title:title, src:"svc", id:pk});
+  });
+  (svcSongs||[]).forEach(function(sg){
+    var d = sg.data || {};
+    if(seen[String(sg.title||"").toLowerCase()]) return;
+    var chordTxt = d.chords || (d.chordFile && (d.chordFileType === "text/plain" || /^data:text/.test(d.chordFile) || !/^data:/.test(d.chordFile)) ? shDecodeText(d.chordFile) : "");
+    var lyricTxt = d.lyrics || (d.lyricFile && (d.lyricFileType === "text/plain" || /^data:text/.test(d.lyricFile) || !/^data:/.test(d.lyricFile)) ? shDecodeText(d.lyricFile) : "");
+    var parts = [];
+    if(chordTxt) parts.push(chordTxt);
+    if(lyricTxt && (!chordTxt || chordTxt.indexOf(lyricTxt.trim().substr(0,40)) === -1)) parts.push((chordTxt ? "LYRICS\n" : "") + lyricTxt);
+    if(d.numberChart && (!chordTxt || chordTxt.indexOf(d.numberChart.trim().substr(0,20)) === -1)) parts.push("NUMBER CHART\n" + d.numberChart);
+    if(!parts.length) return;
+    list.push({title: sg.title, src:"song", text: parts.join("\n\n"), key: d.key || ""});
+  });
+  return list;
+}
+
+// ── Viewer state ──
+var _tv = { sid:"", sheets:[], orig:[], target:[], idx:0, pdfMode:false, generated:null };
+
+function tvBar(){
+  var bar = document.getElementById("tv-bar");
+  if(bar) return bar;
+  bar = document.createElement("div");
+  bar.id = "tv-bar";
+  bar.style.cssText = "display:none;align-items:center;gap:6px;padding:8px 12px;background:#14261a;border-bottom:1px solid #2d4a2d;flex-shrink:0;flex-wrap:wrap";
+  var content = document.getElementById("sv-content");
+  content.parentNode.insertBefore(bar, content);
+  return bar;
+}
+function tvBtnCss(bg, fg){
+  return "width:auto;margin:0;padding:7px 12px;font-size:14px;border-radius:6px;border:1px solid #3c6b47;background:"+bg+";color:"+fg+";cursor:pointer;line-height:1";
+}
+function tvRenderBar(){
+  var bar = tvBar();
+  bar.style.display = "flex";
+  document.getElementById("sv-key-bar").style.display = "none";
+  if(_tv.pdfMode){
+    bar.innerHTML =
+      '<button onclick="tvBackToKeys()" style="'+tvBtnCss("#22382a","#a8e6c0")+'">← Change keys</button>'+
+      '<span style="font-size:12px;color:#8fbf9c;margin-left:4px">PDFs ready — swipe or tap Next</span>';
+    return;
+  }
+  var i = _tv.idx, o = _tv.orig[i] || {semi:0,minor:false}, t = _tv.target[i];
+  var opts = "";
+  for(var s=0;s<12;s++){
+    opts += '<option value="'+s+'"'+(s===t?" selected":"")+'>'+shKeyName(s, o.minor)+(s===o.semi?" (orig)":"")+'</option>';
+  }
+  bar.innerHTML =
+    '<span style="font-size:11px;font-weight:bold;letter-spacing:1px;color:#7fd39a">KEY</span>'+
+    '<button onclick="tvStep(-1)" title="Down a half step" style="'+tvBtnCss("#22382a","#fff")+'">−</button>'+
+    '<select id="tv-key-select" onchange="tvSetKey(+this.value)" style="width:auto;margin:0;padding:6px 8px;font-size:15px;font-weight:bold;background:#22382a;color:#fff;border:1px solid #4caf50;border-radius:6px">'+opts+'</select>'+
+    '<button onclick="tvStep(1)" title="Up a half step" style="'+tvBtnCss("#22382a","#fff")+'">+</button>'+
+    (t !== o.semi ? '<button onclick="tvSetKey('+o.semi+')" style="'+tvBtnCss("transparent","#8fbf9c")+';font-size:12px">Reset</button>' : '')+
+    '<span style="font-size:11px;color:#8fbf9c">orig '+shKeyName(o.semi, o.minor)+(o.found?"":" ?")+'</span>'+
+    '<button id="tv-pdf-btn" onclick="generateTxtPdfs()" style="'+tvBtnCss("#c9a877","#fff")+';margin-left:auto;font-weight:bold;border-color:#c9a877">📄 PDF</button>';
+}
 
 function openTxtViewer(sid){
-  var ids   = window["_svcTxtIds_"+sid]   || [];
-  var names = window["_svcTxtNames_"+sid] || [];
-  if(!ids.length){ alert("No chord sheets for this service."); return; }
+  var sheets = window["_svcSheets_"+sid] || [];
+  if(!sheets.length){ alert("No chord sheets for this service yet."); return; }
+  _tv.sid = sid; _tv.sheets = sheets.map(function(s){ return Object.assign({}, s); });
+  _tv.idx = 0; _tv.pdfMode = false; _tv.generated = null;
+  _sv.blobUrls = [];
 
-  _tv.sid  = sid;
-  _tv.ids  = ids;
-  _tv.names= names;
-  _tv.texts= [];
-  _tv.keys = ids.map(function(){ return ""; }); // empty = original key
-  _tv.idx  = 0;
-
-  // Show fullscreen viewer shell
-  document.getElementById("sv-key-bar").style.display = "none";
   document.getElementById("song-viewer").style.display = "flex";
   document.body.style.overflow = "hidden";
+  document.getElementById("sv-key-bar").style.display = "none";
+  svGo = tvGo;
 
-  // Override nav
-  svGo = function(dir){
-    var next = _tv.idx + dir;
-    if(next < 0 || next >= _tv.ids.length) return;
-    _tv.idx = next;
-    tvRender();
-  };
-
-  // Touch swipe
-  var svContent = document.getElementById("sv-content");
-  svContent.ontouchstart = function(e){ _tv._startX = e.touches[0].clientX; };
+  var svContent = document.getElementById("sv-content"), startX = 0, startY = 0;
+  svContent.ontouchstart = function(e){ startX = e.touches[0].clientX; startY = e.touches[0].clientY; };
   svContent.ontouchend   = function(e){
-    var dx = e.changedTouches[0].clientX - _tv._startX;
-    if(Math.abs(dx) > 50){ svGo(dx < 0 ? 1 : -1); }
+    var dx = e.changedTouches[0].clientX - startX, dy = e.changedTouches[0].clientY - startY;
+    if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5){ svGo(dx < 0 ? 1 : -1); }
   };
 
-  // Show loading
   var loading = document.getElementById("sv-loading");
   loading.style.display = "flex";
-  loading.innerHTML = "⏳ Loading chord sheets...";
+  loading.textContent = "⏳ Loading chord sheets...";
   document.getElementById("sv-pages").innerHTML = "";
+  document.getElementById("sv-title").textContent = "Chord Sheets";
+  tvBar().style.display = "none";
 
-  // Fetch all TXT files
-  var fetches = ids.map(function(id){ return ref.child("svcPdfData/"+sid+"/"+id).once("value"); });
-  Promise.all(fetches).then(function(snaps){
-    _tv.texts = snaps.map(function(s){ return s.val() || ""; });
-    // Auto-detect key from first line: e.g. "Key: G" or "Key of G"
-    _tv.keys = _tv.texts.map(function(txt){
-      var m = txt.match(/key\s*(?:of)?\s*:?\s*([A-G][b#]?)/i);
-      return m ? m[1] : "C";
+  var fetches = _tv.sheets.map(function(s){
+    return s.src === "svc" ? ref.child("svcPdfData/"+sid+"/"+s.id).once("value").then(function(snap){ return snap.val(); })
+                           : Promise.resolve(s.text);
+  });
+  Promise.all(fetches).then(function(texts){
+    _tv.sheets.forEach(function(s, i){
+      var t = shDecodeText(texts[i]);
+      s.text = (t == null) ? "(This file could not be read as text.)" : t;
     });
+    _tv.orig   = _tv.sheets.map(function(s){ return shDetectKey(s.text, s.key); });
+    _tv.target = _tv.orig.map(function(o){ return o.semi; });
     loading.style.display = "none";
     tvRender();
   }).catch(function(e){
-    loading.innerHTML = "Error loading files: "+e.message;
+    loading.textContent = "Error loading chord sheets: " + e.message;
   });
 }
 
+function tvGo(dir){
+  var next = _tv.idx + dir;
+  if(next < 0 || next >= _tv.sheets.length) return;
+  _tv.idx = next;
+  tvRender();
+}
+function tvJump(i){ _tv.idx = i; tvRender(); }
+function tvSetKey(semi){ _tv.target[_tv.idx] = ((semi % 12) + 12) % 12; _tv.generated = null; tvRender(); }
+function tvStep(d){ tvSetKey(_tv.target[_tv.idx] + d); }
+
 function tvRender(){
-  var idx   = _tv.idx;
-  var n     = _tv.ids.length;
-  var name  = _tv.names[idx] || ("File "+(idx+1));
-  var rawText = _tv.texts[idx] || "";
-  var curKey  = _tv.keys[idx] || "C";
+  var i = _tv.idx, n = _tv.sheets.length, sh = _tv.sheets[i];
+  var o = _tv.orig[i], t = _tv.target[i];
+  document.getElementById("sv-title").textContent   = sh.title + " — " + shKeyName(t, o.minor);
+  document.getElementById("sv-counter").textContent = n > 1 ? (i+1)+"/"+n : "";
+  document.getElementById("sv-prev").disabled = (i === 0);
+  document.getElementById("sv-next").disabled = (i === n-1);
+  document.getElementById("sv-song-tabs").innerHTML = _tv.sheets.map(function(s, j){
+    var label = s.title.length > 14 ? s.title.substr(0,13)+"…" : s.title;
+    return '<button class="sv-tab'+(j===i?" active":"")+'" onclick="tvJump('+j+')">'+escHtml(label)+' · '+shKeyName(_tv.target[j], _tv.orig[j].minor)+'</button>';
+  }).join("");
+  tvRenderBar();
 
-  document.getElementById("sv-title").textContent   = name;
-  document.getElementById("sv-counter").textContent = n>1 ? (idx+1)+"/"+n : "";
-  document.getElementById("sv-prev").disabled = (idx === 0);
-  document.getElementById("sv-next").disabled = (idx === n-1);
+  var lines = shTransposeLines(sh.text, o.semi, t, o.minor);
+  var maxLen = lines.reduce(function(m, l){ return Math.max(m, l.text.length); }, 10);
+  var body = lines.map(function(l){
+    if(l.type === "chord") return '<span style="color:#ffcf66;font-weight:bold">'+escHtml(l.text)+'</span>';
+    if(l.type === "key")   return '<span style="color:#7fd39a;font-weight:bold">'+escHtml(l.text)+'</span>';
+    return escHtml(l.text);
+  }).join("\n");
 
-  // Build tabs
-  var tabs = document.getElementById("sv-song-tabs");
-  tabs.innerHTML = _tv.names.map(function(nm,i){
-    var label = nm.length>12 ? nm.substr(0,11)+"…" : nm;
-    return '<button class="sv-tab'+(i===idx?" active":"")+'" onclick="tvJump('+i+')">🎵 '+label+'</button>';
-  }).join('');
-
-  // Build key selector inline in page header
-  var keyOptions = KEYS.map(function(k){
-    return '<option value="'+k+'"'+(k===curKey?' selected':'')+'>'+k+'</option>';
-  }).join('');
-
-  // Detect original key from text
-  var origKeyM = rawText.match(/key\s*(?:of)?\s*:?\s*([A-G][b#]?)/i);
-  var origKey  = origKeyM ? origKeyM[1] : "C";
-
-  // Transpose the text
-  var displayText = (curKey && curKey !== origKey)
-    ? transposeText(rawText, origKey, curKey)
-    : rawText;
-
-  // PDF generate button in nav
-  var navEl = document.getElementById("sv-nav");
-  // Add PDF button if not already added
-  if(!document.getElementById("tv-pdf-btn")){
-    var pdfBtn = document.createElement("button");
-    pdfBtn.id = "tv-pdf-btn";
-    pdfBtn.textContent = "📄 PDF";
-    pdfBtn.style.cssText = "background:#c9a877;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;margin:0;width:auto;white-space:nowrap;flex-shrink:0";
-    pdfBtn.onclick = generateTxtPdfs;
-    navEl.appendChild(pdfBtn);
-  }
-
-  // Render text content with key selector
   var pages = document.getElementById("sv-pages");
   pages.innerHTML =
-    '<div class="sv-page" style="display:flex;flex-direction:column;overflow:hidden">'+
-      '<div style="padding:8px 14px;font-size:12px;background:#1a2a1a;border-bottom:1px solid #2d4a2d;display:flex;align-items:center;gap:10px;flex-shrink:0">'+
-        '<span style="color:#4caf50;font-weight:bold;text-transform:uppercase;letter-spacing:1px;font-size:11px">Key</span>'+
-        '<select id="tv-key-'+idx+'" onchange="tvSetKey('+idx+',this.value)" style="width:auto;padding:4px 8px;font-size:13px;margin:0;background:#2d3a2d;color:#a8e6c0;border:1px solid #4caf50;border-radius:6px">'+
-          keyOptions+
-        '</select>'+
-        '<span style="font-size:11px;color:#888">orig: <b style="color:#aaa">'+origKey+'</b></span>'+
-        '<span style="font-size:11px;color:#666;margin-left:auto">✏️ Change key per file</span>'+
-      '</div>'+
-      '<pre style="margin:0;padding:16px;font-size:14px;color:#eee;white-space:pre-wrap;font-family:monospace;line-height:1.7;flex:1;overflow:auto">'+escHtml(displayText)+'</pre>'+
+    '<div class="sv-page" style="overflow:auto;background:#111">'+
+      '<pre id="tv-pre" style="margin:0;padding:16px;color:#eee;white-space:pre;font-family:Menlo,Consolas,\'Courier New\',monospace;line-height:1.45">'+body+'</pre>'+
     '</div>';
+  // Fit the longest line to the screen width so chords stay above the right syllables
+  var avail = Math.max(200, pages.clientWidth - 32);
+  var fs = Math.max(10, Math.min(18, Math.floor(avail / (maxLen * 0.61))));
+  document.getElementById("tv-pre").style.fontSize = fs + "px";
 }
 
-function tvJump(i){
-  _tv.idx = i;
-  tvRender();
+// ── Convert every sheet (in its chosen key) to a PDF, then open the normal PDF viewer ──
+function shPdfSafe(s){
+  return String(s)
+    .replace(/[‘’‛′]/g,"'").replace(/[“”″]/g,'"')
+    .replace(/[–—−]/g,"-").replace(/…/g,"...").replace(/ /g," ")
+    .replace(/[♯]/g,"#").replace(/[♭]/g,"b")
+    .replace(/[^\x20-\x7E\xA1-\xFF]/g,"?");
 }
+async function tvMakePdf(PDFLib, title, keyName, lines){
+  var doc  = await PDFLib.PDFDocument.create();
+  doc.setTitle(title + " (" + keyName + ")");
+  var mono = await doc.embedFont(PDFLib.StandardFonts.Courier);
+  var bold = await doc.embedFont(PDFLib.StandardFonts.CourierBold);
+  var head = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+  var W = 612, H = 792, M = 42;                       // US Letter
+  var maxLen = lines.reduce(function(m, l){ return Math.max(m, l.text.length); }, 20);
+  var fs = Math.max(7.5, Math.min(12, (W - 2*M) / (maxLen * 0.6)));
+  var maxChars = Math.floor((W - 2*M) / (fs * 0.6));
+  var lh = fs * 1.38;
+  var chordColor = PDFLib.rgb(0.62, 0.12, 0.10), textColor = PDFLib.rgb(0.07,0.07,0.07);
 
-function tvSetKey(idx, key){
-  _tv.keys[idx] = key;
-  tvRender();
+  // wrap anything still too long
+  var rows = [];
+  lines.forEach(function(l){
+    var s = shPdfSafe(l.text);
+    if(!s.length){ rows.push({text:"", type:l.type}); return; }
+    for(var p=0; p<s.length; p+=maxChars) rows.push({text:s.substr(p, maxChars), type:l.type});
+  });
+
+  var page = null, y = 0, pageNo = 0;
+  function newPage(){
+    page = doc.addPage([W, H]); pageNo++;
+    y = H - M;
+    if(pageNo === 1){
+      page.drawText(shPdfSafe(title), {x:M, y:y-16, size:18, font:head, color:textColor});
+      var kw = head.widthOfTextAtSize("Key: " + keyName, 13);
+      page.drawText("Key: " + keyName, {x:W-M-kw, y:y-15, size:13, font:head, color:chordColor});
+      y -= 34;
+      page.drawLine({start:{x:M,y:y}, end:{x:W-M,y:y}, thickness:0.6, color:PDFLib.rgb(0.75,0.75,0.75)});
+      y -= lh + 4;
+    } else {
+      page.drawText(shPdfSafe(title) + " (cont.)", {x:M, y:y-8, size:9, font:head, color:PDFLib.rgb(0.5,0.5,0.5)});
+      y -= 22 + lh;
+    }
+  }
+  newPage();
+  rows.forEach(function(r){
+    if(y < M){ newPage(); }
+    if(r.text.trim()){
+      var isChord = r.type === "chord" || r.type === "key";
+      page.drawText(r.text, {x:M, y:y, size:fs, font: isChord ? bold : mono, color: isChord ? chordColor : textColor});
+    }
+    y -= lh;
+  });
+  return await doc.saveAsBase64({dataUri:true});
 }
 
 async function generateTxtPdfs(){
   var btn = document.getElementById("tv-pdf-btn");
-  if(btn){ btn.textContent = "⏳ Generating..."; btn.disabled = true; }
-
+  if(btn){ btn.disabled = true; btn.textContent = "⏳ Making PDFs..."; }
   try{
-    var PDFLib = window.PDFLib;
-    if(!PDFLib){ throw new Error("PDF library not loaded."); }
-
-    var songs = [];
-    for(var i=0;i<_tv.ids.length;i++){
-      var rawText = _tv.texts[i] || "";
-      var curKey  = _tv.keys[i] || "C";
-      var origKeyM = rawText.match(/key\s*(?:of)?\s*:?\s*([A-G][b#]?)/i);
-      var origKey  = origKeyM ? origKeyM[1] : "C";
-      var displayText = (curKey && curKey !== origKey)
-        ? transposeText(rawText, origKey, curKey)
-        : rawText;
-
-      // Create PDF from text
-      var pdfDoc = await PDFLib.PDFDocument.create();
-      var font   = await pdfDoc.embedFont(PDFLib.StandardFonts.Courier);
-      var fontSize = 11;
-      var margin   = 40;
-      var lineH    = fontSize * 1.5;
-
-      // Split into lines and paginate
-      var lines = displayText.split('\n');
-      var pageW = 595, pageH = 842; // A4
-      var contentH = pageH - margin*2;
-      var linesPerPage = Math.floor(contentH / lineH);
-
-      for(var p=0; p<lines.length; p+=linesPerPage){
-        var page = pdfDoc.addPage([pageW, pageH]);
-        var chunk = lines.slice(p, p+linesPerPage);
-        var y = pageH - margin;
-        chunk.forEach(function(line){
-          var safeLine = line.replace(/[^\x20-\x7E]/g,' ');
-          if(safeLine.length > 80) safeLine = safeLine.substr(0,80);
-          try{
-            page.drawText(safeLine, {x:margin, y:y, size:fontSize, font:font, color:PDFLib.rgb(0.05,0.05,0.05)});
-          }catch(e){}
-          y -= lineH;
-        });
-        // File name header on first page of each file
-        if(p===0){
-          page.drawText(_tv.names[i]+(curKey?' — Key of '+curKey:''), {
-            x:margin, y:pageH-20, size:9,
-            font:font, color:PDFLib.rgb(0.5,0.5,0.5)
-          });
-        }
+    if(!window.PDFLib) throw new Error("PDF library didn't load — check your internet connection and reload.");
+    if(!_tv.generated){
+      var out = [];
+      for(var i=0;i<_tv.sheets.length;i++){
+        var o = _tv.orig[i], t = _tv.target[i], kn = shKeyName(t, o.minor);
+        var lines = shTransposeLines(_tv.sheets[i].text, o.semi, t, o.minor);
+        var dataUrl = await tvMakePdf(window.PDFLib, _tv.sheets[i].title, kn, lines);
+        out.push({ title: _tv.sheets[i].title + " (" + kn + ")", _dataUrl: dataUrl, _fileType: "application/pdf", _isPdf: true });
       }
-      if(pdfDoc.getPageCount()===0) pdfDoc.addPage([pageW, pageH]);
-
-      var pdfBytes = await pdfDoc.save();
-      var b64 = '';
-      var chunk2 = new Uint8Array(pdfBytes);
-      var chunkSize = 8192;
-      for(var c=0;c<chunk2.length;c+=chunkSize){
-        b64 += String.fromCharCode.apply(null, chunk2.subarray(c, c+chunkSize));
-      }
-      var dataUrl = "data:application/pdf;base64," + btoa(b64);
-
-      songs.push({ title: _tv.names[i], _dataUrl: dataUrl, _fileType: "application/pdf", _isPdf: true });
+      _tv.generated = out;
     }
-
-    // Remove PDF button before switching mode
-    var pdfBtn2 = document.getElementById("tv-pdf-btn");
-    if(pdfBtn2) pdfBtn2.parentNode.removeChild(pdfBtn2);
-
-    // Switch to PDF viewer mode
-    _sv.songs    = songs;
-    _sv.idx      = 0;
-    _sv.blobUrls = [];
-    document.getElementById("sv-key-bar").style.display = "none";
-
-    // Restore svGo for PDF mode
-    svGo = function(dir){
-      var next = _sv.idx + dir;
-      if(next < 0 || next >= _sv.songs.length) return;
-      _sv.idx = next;
-      svRenderPdf();
-    };
-
-    svRenderPdf();
+    tvShowPdfs();
   }catch(e){
-    alert("Error generating PDFs: "+e.message);
-    if(btn){ btn.textContent = "📄 PDF"; btn.disabled = false; }
+    alert("Could not make PDFs: " + e.message);
+    if(btn){ btn.disabled = false; btn.textContent = "📄 PDF"; }
   }
+}
+
+function tvShowPdfs(){
+  _sv.blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
+  _sv.blobUrls = [];
+  _sv.songs = _tv.generated;
+  _sv.idx   = 0;            // start from the first song
+  _tv.pdfMode = true;
+  svGo = function(dir){
+    var next = _sv.idx + dir;
+    if(next < 0 || next >= _sv.songs.length) return;
+    _sv.idx = next;
+    svRenderPdf();
+  };
+  tvRenderBar();
+  svRenderPdf();
+}
+
+function tvBackToKeys(){
+  _tv.pdfMode = false;
+  _tv.idx = _sv.idx;
+  svGo = tvGo;
+  tvRender();
 }
 
 // Open service PDFs (from Firebase svcPdfData) in the viewer
@@ -3373,9 +3570,10 @@ closeSongViewer = function(){
   document.body.style.overflow = "";
   _sv.blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u); }catch(e){} });
   _sv.blobUrls = [];
-  // Remove TXT viewer PDF button if present
-  var pdfBtn = document.getElementById("tv-pdf-btn");
-  if(pdfBtn) pdfBtn.parentNode.removeChild(pdfBtn);
+  // Hide the chord-sheet key bar and leave chord-sheet mode
+  var tvb = document.getElementById("tv-bar");
+  if(tvb) tvb.style.display = "none";
+  _tv.pdfMode = false;
   // Reset svGo to song-viewer mode
   svGo = function(dir){
     var sg = _sv.songs[_sv.idx];
