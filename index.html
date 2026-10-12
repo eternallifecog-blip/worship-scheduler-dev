@@ -87,7 +87,7 @@ nav button{margin:0;padding:8px 12px;width:auto;font-size:13px}
   <div style="display:flex;align-items:center;gap:10px">
     <h1 style="margin:0">🎵 Worship Scheduler</h1>
     <span id="env-badge"></span>
-    <span style="font-size:10px;color:#999;margin-left:auto">v2026.10.11-sheets</span>
+    <span style="font-size:10px;color:#999;margin-left:auto">v2026.10.11-chords-above</span>
   </div>
   <div id="uinfo" style="font-size:12px;color:#999;margin-top:4px"></div>
   <div class="status" id="synctxt">⏳ Starting...</div>
@@ -3134,29 +3134,86 @@ function shDetectKey(text, fallbackKey){
   return {semi:0, minor:false, found:false};
 }
 // Transpose a whole sheet. Returns [{text, type}] with type: "chord" | "key" | "text"
-function shTransposeLines(text, fromSemi, toSemi, minor){
+// ChordPro-style "{key: G}", "{c: Chorus}", "{soc}" → plain lines (null = drop the line)
+function shDirective(line){
+  var m = line.match(/^\s*\{\s*([A-Za-z_]+)\s*(?::\s*(.*?))?\s*\}\s*$/);
+  if(!m) return undefined;
+  var k = m[1].toLowerCase(), v = m[2] || "";
+  if(k === "key") return "Key: " + v;
+  if(/^(t|title|st|subtitle|artist|composer|c|comment|ci|comment_italic|cb|comment_box|tempo|time|capo)$/.test(k)){
+    if(/^(tempo|time|capo)$/.test(k)) return k.charAt(0).toUpperCase() + k.substr(1) + ": " + v;
+    return v;
+  }
+  if(k === "soc" || k === "start_of_chorus") return v || "Chorus:";
+  if(k === "sov" || k === "start_of_verse")  return v || "Verse:";
+  if(k === "sob" || k === "start_of_bridge") return v || "Bridge:";
+  if(/^(eoc|eov|eob|end_of_\w+)$/.test(k)) return "";
+  return null;
+}
+// "Blessed [D]assurance, [G]Jesus is mine" → chord line above + clean lyric line
+function shSplitInline(line, xf){
+  var re = /\[([^\]\s]+)\]/g, m, last = 0, lyric = "", chordLine = "", any = false;
+  while((m = re.exec(line))){
+    lyric += line.substring(last, m.index);
+    last = re.lastIndex;
+    if(!shIsChord(m[1])){ lyric += m[0]; continue; }      // e.g. [Verse 1] stays as text
+    any = true;
+    var c = xf(m[1]);
+    var need = chordLine.length ? chordLine.length + 1 : 0;   // keep one space between chords
+    if(lyric.length < need) lyric += new Array(need - lyric.length + 1).join(" ");
+    chordLine += new Array(lyric.length - chordLine.length + 1).join(" ") + c;
+  }
+  lyric += line.substring(last);
+  if(!any) return null;
+  // Only chords (plus maybe a label like "Intro:") on this line → keep it as one chord line
+  var bare = lyric.replace(/[\s|\-–\/%.,()*]+/g, " ").trim();
+  var lm = bare && bare.match(SH_LABEL_RE);
+  var onlyLabel = lm && lm[1].trim().length >= bare.length;
+  if(!bare || onlyLabel){
+    var one = line.replace(/\[([^\]\s]+)\]/g, function(all, c){ return shIsChord(c) ? xf(c) : all; });
+    return [{type:"chord", text: one}];
+  }
+  return [{type:"chord", text: chordLine}, {type:"text", text: lyric.replace(/\s+$/, "")}];
+}
+// Transpose a whole sheet. Returns [{text, type}] with type: "chord" | "key" | "text".
+// layout=true also moves inline [G] chords onto their own line above the lyrics (for viewing/PDF).
+function shTransposeLines(text, fromSemi, toSemi, minor, layout){
   var shift = ((toSemi - fromSemi) % 12 + 12) % 12;
   var flats = shUseFlats(toSemi, minor);
   var newKey = shKeyName(toSemi, minor);
-  return String(text||"").replace(/\r/g,"").replace(/\t/g,"    ").split("\n").map(function(line){
+  var xf = function(c){ return shift ? shTransposeChord(c, shift, flats) : c; };
+  var out = [];
+  String(text||"").replace(/\r/g,"").replace(/\t/g,"    ").split("\n").forEach(function(line){
+    if(layout){
+      var d = shDirective(line);
+      if(d === null) return;
+      if(d !== undefined) line = d;
+    }
     // 1. "Key: G" line
     if(SH_KEYLINE_RE.test(line)){
-      return {type:"key", text: line.replace(SH_KEYLINE_RE, function(all, pre){ return pre + newKey; })};
+      out.push({type:"key", text: line.replace(SH_KEYLINE_RE, function(all, pre){ return pre + newKey; })});
+      return;
     }
-    // 2. Chord-only line
+    // 2. Chord-only line (keeps columns aligned)
     var cl = shChordLine(line);
     if(cl){
-      return {type:"chord", text: cl.label + (shift ? shTransposeChordLine(cl.body, shift, flats) : cl.body)};
+      out.push({type:"chord", text: cl.label + (shift ? shTransposeChordLine(cl.body, shift, flats) : cl.body)});
+      return;
     }
     // 3. Inline [G] chords inside a lyric line
-    if(/\[[A-G][^\]\s]*\]/.test(line)){
-      return {type:"text", text: line.replace(/\[([^\]\s]+)\]/g, function(all, c){
-        return shIsChord(c) ? "[" + (shift ? shTransposeChord(c, shift, flats) : c) + "]" : all;
-      })};
+    if(/\[[^\]\s]+\]/.test(line)){
+      if(layout){
+        var split = shSplitInline(line, xf);
+        if(split){ out.push.apply(out, split); return; }
+      } else {
+        out.push({type:"text", text: line.replace(/\[([^\]\s]+)\]/g, function(all, c){ return shIsChord(c) ? "[" + xf(c) + "]" : all; })});
+        return;
+      }
     }
     // 4. Lyrics / number chart / anything else — untouched
-    return {type:"text", text: line};
+    out.push({type:"text", text: line});
   });
+  return out;
 }
 function shTransposeText(text, fromSemi, toSemi, minor){
   return shTransposeLines(text, fromSemi, toSemi, minor).map(function(l){ return l.text; }).join("\n");
@@ -3324,7 +3381,7 @@ function tvRender(){
   }).join("");
   tvRenderBar();
 
-  var lines = shTransposeLines(sh.text, o.semi, t, o.minor);
+  var lines = shTransposeLines(sh.text, o.semi, t, o.minor, true);
   var maxLen = lines.reduce(function(m, l){ return Math.max(m, l.text.length); }, 10);
   var body = lines.map(function(l){
     if(l.type === "chord") return '<span style="color:#ffcf66;font-weight:bold">'+escHtml(l.text)+'</span>';
@@ -3409,7 +3466,7 @@ async function generateTxtPdfs(){
       var out = [];
       for(var i=0;i<_tv.sheets.length;i++){
         var o = _tv.orig[i], t = _tv.target[i], kn = shKeyName(t, o.minor);
-        var lines = shTransposeLines(_tv.sheets[i].text, o.semi, t, o.minor);
+        var lines = shTransposeLines(_tv.sheets[i].text, o.semi, t, o.minor, true);
         var dataUrl = await tvMakePdf(window.PDFLib, _tv.sheets[i].title, kn, lines);
         out.push({ title: _tv.sheets[i].title + " (" + kn + ")", _dataUrl: dataUrl, _fileType: "application/pdf", _isPdf: true });
       }
