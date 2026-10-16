@@ -87,7 +87,7 @@ nav button{margin:0;padding:8px 12px;width:auto;font-size:13px}
   <div style="display:flex;align-items:center;gap:10px">
     <h1 style="margin:0">🎵 Worship Scheduler</h1>
     <span id="env-badge"></span>
-    <span style="font-size:10px;color:#999;margin-left:auto">v2026.10.11-chords-above</span>
+    <span style="font-size:10px;color:#999;margin-left:auto">v2026.10.13-pco-import-2</span>
   </div>
   <div id="uinfo" style="font-size:12px;color:#999;margin-top:4px"></div>
   <div class="status" id="synctxt">⏳ Starting...</div>
@@ -587,7 +587,7 @@ function showMemberHome(){
           h+='<div style="margin-top:6px;padding:8px 10px;background:var(--card);border-radius:6px;border-left:3px solid var(--accent);display:flex;align-items:center;justify-content:space-between">'+
             '<div>'+
               '<b style="font-size:13px">'+sg.title+'</b>'+
-              (sg.data&&sg.data.key?' <span style="font-size:11px;color:#999">Key: <b>'+sg.data.key+'</b></span>':'')+
+              (sg.data&&sg.data.key?' <span style="font-size:11px;color:#999">Key: <b>'+(sg.data.keyLabel||sg.data.key)+'</b></span>':'')+
             '</div>'+
           '</div>';
         });
@@ -1820,7 +1820,7 @@ function showSongs(){
           '<b style="font-size:15px">'+sg.title+'</b>'+
           (isAdmin()?'<button onclick="editSongKey(\''+k+'\')" style="width:auto;padding:4px 10px;margin:0;font-size:12px;background:var(--bg);color:var(--accent);border:1px solid var(--line);border-radius:6px">🎵 Transpose</button>':'')+
         '</div>'+
-        '<small style="color:#999">Key: <b>'+sg.key+'</b>'+(sg.notes?' · '+sg.notes:'')+'</small>';
+        '<small style="color:#999">Key: <b>'+(sg.keyLabel||sg.key)+'</b>'+(sg.notes?' · '+sg.notes:'')+'</small>';
 
       if(sg.chords) h+='<details><summary style="cursor:pointer;color:var(--accent)">🎸 Chords</summary>'+
         '<pre style="font-size:12px;white-space:pre-wrap;max-height:200px;overflow:auto;background:var(--bg);padding:8px;border-radius:4px">'+escHtml(sg.chords)+'</pre></details>';
@@ -3045,7 +3045,9 @@ var SH_LABEL_RE = /^(\s*(?:\[[^\]]*\]|\(?(?:intro|verse|chorus|pre-?chorus|bridg
 // "Key: G", "Key of Bb", "KEY - Em"  (only "key" is case-insensitive; the note must be a capital A-G)
 var SH_KEYLINE_RE = /(\b[Kk][Ee][Yy]\s*(?:[Oo][Ff])?\s*[:=\-]?\s*)([A-G][#b]?)(m(?!aj))?(?![A-Za-z0-9#])/;
 
+var _shSpell = null; // "sharp" | "flat" | null — set while drawing a sheet the team spells a certain way
 function shUseFlats(semi, minor){
+  if(_shSpell) return _shSpell === "flat";
   var major = minor ? (semi + 3) % 12 : semi;
   return [1,3,5,8,10].indexOf(major) !== -1; // Db Eb F Ab Bb
 }
@@ -3268,7 +3270,7 @@ function shBuildSheetList(pdfMeta, svcSongs){
     if(lyricTxt && (!chordTxt || chordTxt.indexOf(lyricTxt.trim().substr(0,40)) === -1)) parts.push((chordTxt ? "LYRICS\n" : "") + lyricTxt);
     if(d.numberChart && (!chordTxt || chordTxt.indexOf(d.numberChart.trim().substr(0,20)) === -1)) parts.push("NUMBER CHART\n" + d.numberChart);
     if(!parts.length) return;
-    list.push({title: sg.title, src:"song", text: parts.join("\n\n"), key: d.key || ""});
+    list.push({title: sg.title, src:"song", text: parts.join("\n\n"), key: d.keyLabel || d.key || "", teamKeys: d.keysUsed || []});
   });
   return list;
 }
@@ -3311,14 +3313,30 @@ function tvRenderBar(){
     '<button onclick="tvStep(1)" title="Up a half step" style="'+tvBtnCss("#22382a","#fff")+'">+</button>'+
     (t !== o.semi ? '<button onclick="tvSetKey('+o.semi+')" style="'+tvBtnCss("transparent","#8fbf9c")+';font-size:12px">Reset</button>' : '')+
     '<span style="font-size:11px;color:#8fbf9c">orig '+shKeyName(o.semi, o.minor)+(o.found?"":" ?")+'</span>'+
-    '<button id="tv-pdf-btn" onclick="generateTxtPdfs()" style="'+tvBtnCss("#c9a877","#fff")+';margin-left:auto;font-weight:bold;border-color:#c9a877">📄 PDF</button>';
+    '<button id="tv-pdf-btn" onclick="generateTxtPdfs()" style="'+tvBtnCss("#c9a877","#fff")+';margin-left:auto;font-weight:bold;border-color:#c9a877">📄 PDF</button>'+
+    tvTeamKeyChips(i, t, o);
+}
+
+// One-tap buttons for the keys the team has used for this song (from Planning Center)
+function tvTeamKeyChips(i, t, o){
+  var keys = (_tv.sheets[i] && _tv.sheets[i].teamKeys) || [];
+  var chips = keys.map(function(k){
+    var m = String(k).match(/^([A-G][#b]?)/);
+    if(!m || SH_NOTE[m[1]] === undefined) return "";
+    var semi = SH_NOTE[m[1]], on = semi === t;
+    var sp = /#/.test(m[1]) ? "sharp" : /b/.test(m[1]) ? "flat" : "";
+    return '<button onclick="tvSetKey('+semi+',\''+sp+'\')" style="'+tvBtnCss(on ? "#4caf50" : "#22382a", "#fff")+';padding:5px 11px;font-size:13px;border-radius:14px">'+escHtml(k)+'</button>';
+  }).join("");
+  if(!chips) return "";
+  return '<div style="flex-basis:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+    '<span style="font-size:11px;color:#8fbf9c">Team keys</span>'+chips+'</div>';
 }
 
 function openTxtViewer(sid){
   var sheets = window["_svcSheets_"+sid] || [];
   if(!sheets.length){ alert("No chord sheets for this service yet."); return; }
   _tv.sid = sid; _tv.sheets = sheets.map(function(s){ return Object.assign({}, s); });
-  _tv.idx = 0; _tv.pdfMode = false; _tv.generated = null;
+  _tv.idx = 0; _tv.pdfMode = false; _tv.generated = null; _tv.spell = [];
   _sv.blobUrls = [];
 
   document.getElementById("song-viewer").style.display = "flex";
@@ -3365,10 +3383,13 @@ function tvGo(dir){
   tvRender();
 }
 function tvJump(i){ _tv.idx = i; tvRender(); }
-function tvSetKey(semi){ _tv.target[_tv.idx] = ((semi % 12) + 12) % 12; _tv.generated = null; tvRender(); }
+function tvSetKey(semi, spell){ _tv.target[_tv.idx] = ((semi % 12) + 12) % 12; (_tv.spell = _tv.spell || [])[_tv.idx] = spell || null; _tv.generated = null; tvRender(); }
 function tvStep(d){ tvSetKey(_tv.target[_tv.idx] + d); }
 
 function tvRender(){
+  try{ tvRenderInner(); } finally { _shSpell = null; }
+}
+function tvRenderInner(){
   var i = _tv.idx, n = _tv.sheets.length, sh = _tv.sheets[i];
   var o = _tv.orig[i], t = _tv.target[i];
   document.getElementById("sv-title").textContent   = sh.title + " — " + shKeyName(t, o.minor);
@@ -3377,13 +3398,24 @@ function tvRender(){
   document.getElementById("sv-next").disabled = (i === n-1);
   document.getElementById("sv-song-tabs").innerHTML = _tv.sheets.map(function(s, j){
     var label = s.title.length > 14 ? s.title.substr(0,13)+"…" : s.title;
-    return '<button class="sv-tab'+(j===i?" active":"")+'" onclick="tvJump('+j+')">'+escHtml(label)+' · '+shKeyName(_tv.target[j], _tv.orig[j].minor)+'</button>';
+    _shSpell = (_tv.spell||[])[j] || null;
+    var kn = shKeyName(_tv.target[j], _tv.orig[j].minor);
+    return '<button class="sv-tab'+(j===i?" active":"")+'" onclick="tvJump('+j+')">'+escHtml(label)+' · '+kn+'</button>';
   }).join("");
+  _shSpell = (_tv.spell||[])[i] || null;
+  document.getElementById("sv-title").textContent = sh.title + " — " + shKeyName(t, o.minor);
   tvRenderBar();
 
   var lines = shTransposeLines(sh.text, o.semi, t, o.minor, true);
   var maxLen = lines.reduce(function(m, l){ return Math.max(m, l.text.length); }, 10);
-  var body = lines.map(function(l){
+  var body = shGroupPairs(lines).map(function(l){
+    if(l.type === "pair"){
+      return '<span style="display:inline-block;white-space:pre">'+shPairSegments(l.chord, l.text).map(function(sg){
+        return '<span style="display:inline-block;vertical-align:bottom;white-space:pre">'+
+          '<span style="display:block;color:#ffcf66;font-weight:bold">'+(sg.chord ? escHtml(sg.chord)+' ' : ' ')+'</span>'+
+          '<span style="display:block">'+(sg.text ? escHtml(sg.text) : ' ')+'</span></span>';
+      }).join("")+'</span>';
+    }
     if(l.type === "chord") return '<span style="color:#ffcf66;font-weight:bold">'+escHtml(l.text)+'</span>';
     if(l.type === "key")   return '<span style="color:#7fd39a;font-weight:bold">'+escHtml(l.text)+'</span>';
     return escHtml(l.text);
@@ -3408,7 +3440,150 @@ function shPdfSafe(s){
     .replace(/[♯]/g,"#").replace(/[♭]/g,"b")
     .replace(/[^\x20-\x7E\xA1-\xFF]/g,"?");
 }
+// For lyrics in Indian scripts, character columns don't line up visually (one letter = several
+// characters), so chords are placed by syllable instead: [{chord, text}] segments.
+function shIsNonLatin(t){ return /[^\x00-ɏ -⁯]/.test(t||""); }
+function shPairSegments(chordText, lyric){
+  var bounds = null;
+  if(window.Intl && Intl.Segmenter){
+    bounds = {};
+    var pos = 0;
+    Array.from(new Intl.Segmenter(undefined, {granularity:"grapheme"}).segment(lyric)).forEach(function(g){ bounds[pos] = 1; pos += g.segment.length; });
+    bounds[lyric.length] = 1;
+  }
+  function snap(i){
+    i = Math.min(i, lyric.length);
+    if(bounds){ while(i < lyric.length && !bounds[i]) i++; return i; }
+    while(i < lyric.length && (/[̀-ͯऀ-ःऺ-ॏ॑-ॗॢॣഀ-ഃ഻-്ൗൢൣ‌‍]/.test(lyric.charAt(i)) || /[्്]/.test(lyric.charAt(i-1)))) i++;
+    return i;
+  }
+  var marks = [], re = /\S+/g, m;
+  while((m = re.exec(chordText))) marks.push({at: snap(m.index), chord: m[0]});
+  var segs = [], start = 0;
+  if(!marks.length || marks[0].at > 0) segs.push({chord:"", from:0});
+  marks.forEach(function(mk){
+    if(segs.length && segs[segs.length-1].from === mk.at){ segs[segs.length-1].chord += (segs[segs.length-1].chord ? " " : "") + mk.chord; }
+    else segs.push({chord: mk.chord, from: mk.at});
+  });
+  return segs.map(function(sg, i){
+    var to = i + 1 < segs.length ? segs[i+1].from : lyric.length;
+    return {chord: sg.chord, text: lyric.substring(sg.from, to)};
+  });
+}
+// Group a chord line with the lyric line under it when that lyric uses a non-Latin script
+function shGroupPairs(lines){
+  var out = [];
+  for(var i=0;i<lines.length;i++){
+    var l = lines[i], nx = lines[i+1];
+    if(l.type === "chord" && nx && nx.type === "text" && nx.text.trim() && shIsNonLatin(nx.text)){
+      out.push({type:"pair", chord:l.text, text:nx.text}); i++;
+    } else out.push(l);
+  }
+  return out;
+}
+
+// Text with Devanagari, Malayalam, Tamil etc. can't use the built-in PDF fonts (Latin only).
+// Those sheets are drawn with the device's own fonts onto a canvas and placed in the PDF as page images.
+function shNeedsUnicode(title, lines){
+  var all = title + "\n" + lines.map(function(l){ return l.text; }).join("\n");
+  all = all.replace(/[\u2018\u2019\u201B\u2032\u201C\u201D\u2033\u2013\u2014\u2212\u2026\u00A0\u266F\u266D]/g, "");
+  return /[^\x00-\xFF]/.test(all);
+}
+async function tvMakePdfCanvas(PDFLib, title, keyName, lines){
+  var doc = await PDFLib.PDFDocument.create();
+  doc.setTitle(title + " (" + keyName + ")");
+  var W = 612, H = 792, M = 42, SCALE = 2.5;       // US Letter, drawn at 180 dpi
+  var mono = "'Courier New', Courier, 'Noto Sans Mono', monospace";
+  var sans = "'Helvetica Neue', Arial, 'Noto Sans', 'Noto Sans Devanagari', 'Noto Sans Malayalam', sans-serif";
+  var cv = document.createElement("canvas");
+  cv.width = W * SCALE; cv.height = H * SCALE;
+  var ctx = cv.getContext("2d");
+
+  var maxLen = lines.reduce(function(m, l){ return Math.max(m, l.text.length); }, 20);
+  var fs = Math.max(8, Math.min(13, (W - 2*M) / (maxLen * 0.6)));
+  var lh = fs * 1.5;                                // a little taller: Indic scripts need room
+  var maxW = W - 2*M;
+
+  // wrap by measured width (works for any script)
+  var rows = [];
+  ctx.font = fs + "px " + mono;
+  shGroupPairs(lines).forEach(function(l){
+    if(l.type === "pair" && ctx.measureText(l.text).width <= maxW){ rows.push(l); return; }
+    if(l.type === "pair"){ rows.push({text:l.chord, type:"chord"}); l = {text:l.text, type:"text"}; }
+    var txt = l.text.replace(/\t/g, "    ");
+    if(!txt.length){ rows.push({text:"", type:l.type}); return; }
+    while(txt.length){
+      var n = txt.length;
+      while(n > 1 && ctx.measureText(txt.substr(0, n)).width > maxW) n--;
+      if(n < txt.length){ var sp = txt.lastIndexOf(" ", n); if(sp > n * 0.5) n = sp + 1; }
+      rows.push({text: txt.substr(0, n), type: l.type});
+      txt = txt.substr(n);
+    }
+  });
+
+  var pageNo = 0, y = 0;
+  async function flush(){
+    var png = await doc.embedPng(cv.toDataURL("image/png"));
+    doc.addPage([W, H]).drawImage(png, {x:0, y:0, width:W, height:H});
+  }
+  function start(){
+    pageNo++;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.setTransform(SCALE,0,0,SCALE,0,0);
+    ctx.textBaseline = "alphabetic";
+    y = M;
+    if(pageNo === 1){
+      ctx.fillStyle = "#121212"; ctx.font = "bold 18px " + sans;
+      ctx.fillText(title, M, y + 16);
+      ctx.fillStyle = "#9e1f1a"; ctx.font = "bold 13px " + sans;
+      var kw = ctx.measureText("Key: " + keyName).width;
+      ctx.fillText("Key: " + keyName, W - M - kw, y + 15);
+      y += 30;
+      ctx.strokeStyle = "#bfbfbf"; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W - M, y); ctx.stroke();
+      y += lh + 6;
+    } else {
+      ctx.fillStyle = "#808080"; ctx.font = "bold 9px " + sans;
+      ctx.fillText(title + " (cont.)", M, y + 8);
+      y += 24 + lh;
+    }
+  }
+  start();
+  for(var r=0; r<rows.length; r++){
+    var row = rows[r];
+    if(y > H - M - (row.type === "pair" ? lh : 0)){ await flush(); start(); }
+    if(row.type === "pair"){
+      var x = M, lastEnd = 0;
+      shPairSegments(row.chord, row.text).forEach(function(sg){
+        if(sg.chord){
+          ctx.font = "bold " + fs + "px " + mono;
+          var cx = Math.max(x, lastEnd), cw = ctx.measureText(sg.chord + " ").width;
+          ctx.fillStyle = "#9e1f1a"; ctx.fillText(sg.chord, cx, y);
+          lastEnd = cx + cw;
+        }
+        ctx.font = fs + "px " + mono;
+        x += ctx.measureText(sg.text).width;
+      });
+      ctx.font = fs + "px " + mono; ctx.fillStyle = "#121212";
+      ctx.fillText(row.text, M, y + lh);
+      y += 2 * lh;
+      continue;
+    }
+    if(row.text.trim()){
+      var isChord = row.type === "chord" || row.type === "key";
+      ctx.font = (isChord ? "bold " : "") + fs + "px " + mono;
+      ctx.fillStyle = isChord ? "#9e1f1a" : "#121212";
+      ctx.fillText(row.text, M, y);
+    }
+    y += lh;
+  }
+  await flush();
+  return await doc.saveAsBase64({dataUri:true});
+}
+
 async function tvMakePdf(PDFLib, title, keyName, lines){
+  if(shNeedsUnicode(title, lines)) return tvMakePdfCanvas(PDFLib, title, keyName, lines);
   var doc  = await PDFLib.PDFDocument.create();
   doc.setTitle(title + " (" + keyName + ")");
   var mono = await doc.embedFont(PDFLib.StandardFonts.Courier);
@@ -3465,8 +3640,10 @@ async function generateTxtPdfs(){
     if(!_tv.generated){
       var out = [];
       for(var i=0;i<_tv.sheets.length;i++){
+        _shSpell = (_tv.spell||[])[i] || null;
         var o = _tv.orig[i], t = _tv.target[i], kn = shKeyName(t, o.minor);
         var lines = shTransposeLines(_tv.sheets[i].text, o.semi, t, o.minor, true);
+        _shSpell = null;
         var dataUrl = await tvMakePdf(window.PDFLib, _tv.sheets[i].title, kn, lines);
         out.push({ title: _tv.sheets[i].title + " (" + kn + ")", _dataUrl: dataUrl, _fileType: "application/pdf", _isPdf: true });
       }
